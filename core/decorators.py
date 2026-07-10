@@ -6,6 +6,7 @@ from core.registry import registry
 from core.event import MCPEvent
 import inspect
 from utils.logger import logger
+from utils.security import redact_sensitive_data
 
 
 def monitor_tool(func: Callable):
@@ -23,20 +24,21 @@ def monitor_tool(func: Callable):
     return async_wrapper if is_couroutine else sync_wrapper
     
 
-def _execute_and_monitor(func: Callable, *args, is_couroutine: bool, **kwargs) -> Any:
+def _execute_and_monitor(func: Callable, is_couroutine: bool, **kwargs) -> Any:
     start_time = time.perf_counter()
 
+    safe_args = redact_sensitive_data(kwargs)
     event_data = {
         "tool_name": func.__name__,
-        "arguments": kwargs,
+        "arguments": safe_args,
         "timestamp": start_time,
     }
 
     try:
         if is_couroutine:
-            result = asyncio.run_coroutine_threadsafe(func(*args, **kwargs))
+            result = asyncio.run_coroutine_threadsafe(func(**kwargs))
         else:
-            result = func(*args, **kwargs)
+            result = func(**kwargs)
         event_data["status"] = "success"
         event_data["result"] = result
     
