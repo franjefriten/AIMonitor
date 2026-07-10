@@ -1,4 +1,4 @@
-_SENSITIVE_KEYS = {"password", "token", "api_key", "secret", "apikey", "access_token", "client_secret", "private_key", "credentials"}
+from core.config import settings
 
 def redact_sensitive_data(data: dict, extra_sensitive_keys: set = {}) -> dict:
     """
@@ -8,13 +8,15 @@ def redact_sensitive_data(data: dict, extra_sensitive_keys: set = {}) -> dict:
     :return: A new dictionary with sensitive data redacted.
     """
 
-    if extra_sensitive_keys:
-        _SENSITIVE_KEYS.update(extra_sensitive_keys)
-
-    redacted_data = {}
-    for key, value in data.items():
-        if key in _SENSITIVE_KEYS:
-            redacted_data[key] = "[REDACTED]"
-        else:
-            redacted_data[key] = value
-    return redacted_data
+    if not isinstance(data, dict):
+        return data
+        
+    redacted = data.copy()
+    for key, value in redacted.items():
+        if key.lower() in settings.sensitive_keys:
+            redacted[key] = "********"
+        elif isinstance(value, dict):
+            # Llamada recursiva por si hay diccionarios anidados
+            redacted[key] = redact_sensitive_data(value)
+            
+    return redacted
