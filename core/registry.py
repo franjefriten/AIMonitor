@@ -27,9 +27,15 @@ class ExporterRegistry:
             try:
                 await exporter.export(event)
             except Exception as e:
-                logger.error(f"Error occurred while exporting data: {e}")
+                logger.error(f"Error occurred while exporting data for exporter: {exporter.__class__.__name__} and event: {event.model_json_dump()}: {e}")
             finally:
+                logger.info(f"Finished processing event for exporter: {exporter.__class__.__name__} and event: {event.model_json_dump()}")
                 self._queue.task_done()
+    
+    def shutdown(self):
+        if self._worker_task is not None:
+            self._worker_task.cancel()
+            self._worker_task = None
 
 # Global singleton instance of the ExporterRegistry
 registry = ExporterRegistry()
