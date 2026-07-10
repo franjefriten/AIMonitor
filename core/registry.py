@@ -1,5 +1,6 @@
 from typing import List
 from exporters.base import BaseExporter
+from exporters.console import ConsoleExporter
 from core.event import MCPEvent
 import httpx
 import asyncio
@@ -46,3 +47,5 @@ class ExporterRegistry:
 
 # Global singleton instance of the ExporterRegistry
 registry = ExporterRegistry()
+# add default console register
+registry.register(ConsoleExporter())
