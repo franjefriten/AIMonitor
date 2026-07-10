@@ -15,6 +15,7 @@ class RedisExporter(BaseExporter):
         """
         self.redis = redis
 
+    @with_retry()
     def export(self, event: MCPEvent) -> None:
         """
         Export the given event to Redis.

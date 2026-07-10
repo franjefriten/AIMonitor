@@ -4,6 +4,8 @@ This module provides a base class for all exporters, which can be extended to cr
 """
 from abc import ABC, abstractmethod
 from core.event import MCPEvent
+from typing import Callable
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 class BaseExporter(ABC):
     """
@@ -19,3 +21,11 @@ class BaseExporter(ABC):
         :return: The exported data in the desired format.
         """
         pass
+
+def with_retry(func: Callable):
+    return retry(
+        stop=stop_after_attempt(3),
+        retry=retry_if_exception((ConnectionError, TimeoutError)),
+        wait=wait_exponential(),
+        reraise=True
+    )(func)
