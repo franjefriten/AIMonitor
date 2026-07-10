@@ -3,6 +3,9 @@ Exporters are responsible for taking the data from the database and converting i
 This module provides a base class for all exporters, which can be extended to create custom exporters for different formats.
 """
 from abc import ABC, abstractmethod
+from core.event import MCPEvent
+from typing import Callable
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 class BaseExporter(ABC):
     """
@@ -10,11 +13,19 @@ class BaseExporter(ABC):
     """
 
     @abstractmethod
-    def export(self, data):
+    async def export(self, event: MCPEvent) -> None:
         """
-        Export the given data to the desired format.
+        Export the given event to the desired format.
 
-        :param data: The data to be exported.
+        :param event: The event to be exported.
         :return: The exported data in the desired format.
         """
         pass
+
+def with_retry(func: Callable):
+    return retry(
+        stop=stop_after_attempt(3),
+        retry=retry_if_exception((ConnectionError, TimeoutError)),
+        wait=wait_exponential(),
+        reraise=True
+    )(func)
