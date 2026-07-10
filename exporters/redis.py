@@ -1,6 +1,7 @@
 from exporters.base import BaseExporter
 from core.event import MCPEvent
 from utils.logger import logger
+from exporters.base import with_retry
 
 class RedisExporter(BaseExporter):
     """
