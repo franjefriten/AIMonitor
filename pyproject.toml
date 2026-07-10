@@ -6,6 +6,7 @@ authors = [
     {name = "Francisco Jesús Frías Tenza", email = "fj.friastenza@gmail.com"}
 ]
 dependencies = [
+    "httpx>=0.28.1",
     "pydantic>=2.10.0",
     "pydantic-settings>=2.7.0",
     "python-dotenv>=1.0.0",

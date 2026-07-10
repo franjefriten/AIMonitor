@@ -3,6 +3,7 @@ Exporters are responsible for taking the data from the database and converting i
 This module provides a base class for all exporters, which can be extended to create custom exporters for different formats.
 """
 from abc import ABC, abstractmethod
+from core.event import MCPEvent
 
 class BaseExporter(ABC):
     """
@@ -10,11 +11,11 @@ class BaseExporter(ABC):
     """
 
     @abstractmethod
-    def export(self, data):
+    async def export(self, event: MCPEvent) -> None:
         """
-        Export the given data to the desired format.
+        Export the given event to the desired format.
 
-        :param data: The data to be exported.
+        :param event: The event to be exported.
         :return: The exported data in the desired format.
         """
         pass
