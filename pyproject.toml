@@ -1,0 +1,32 @@
+[project]
+name = "AIMonitor"
+version = "0.0.1"
+description = "Framework modular de observabilidad para herramientas MCP"
+authors = [
+    {name = "Francisco Jesús Frías Tenza", email = "fj.friastenza@gmail.com"}
+]
+dependencies = [
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.7.0",
+    "python-dotenv>=1.0.0",
+]
+requires-python = ">=3.10, <3.14"
+readme = "README.md"
+license = "MIT"
+
+[project.optional-dependencies]
+# Permite instalar solo lo necesario: pip install "mcp-monitor[redis]"
+redis = ["redis>=5.2.0"]
+# Para futuras integraciones de telemetría estándar
+telemetry = ["opentelemetry-api>=1.29.0", "opentelemetry-sdk>=1.29.0"]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["core", "exporters", "utils"]
+
+[tool.uv]
+# Configuración específica para uv si quieres optimizar bloqueos
+package = true
