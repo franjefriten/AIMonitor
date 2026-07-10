@@ -1,5 +1,6 @@
 from exporters.base import BaseExporter
 from core.event import MCPEvent
+from utils.logger import logger
 
 class RedisExporter(BaseExporter):
     """
@@ -22,4 +23,6 @@ class RedisExporter(BaseExporter):
         """
         # Convert the event to a dictionary and send it to Redis
         event_dict = event.model_dump_json()
+        status_icon = "✅" if event.status == "success" else "❌"
+        logger.info(f"{status_icon} [Exec time: {event.delta}] {event.tool_name} - Status: {event.status}, Args: {event.args}, Result: {event.result}"f"{status_icon} [Exec time: {event.delta}] {event.tool_name} - Status: {event.status}, Args: {event.args}, Result: {event.result}")
         self.redis_client.publish('mcp_events', str(event_dict))
