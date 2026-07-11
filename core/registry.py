@@ -40,9 +40,10 @@ class ExporterRegistry:
                 self._queue.task_done()
     
     def shutdown(self):
-        if self._worker_task is not None:
-            self._worker_task.cancel()
-            self._worker_task = None
+        if len(self._workers):
+            for worker in self._workers:
+                worker.cancel()
+            self._workers = []
 
 
 # Global singleton instance of the ExporterRegistry
