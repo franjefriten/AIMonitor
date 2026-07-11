@@ -22,7 +22,7 @@ class ExporterRegistry:
             self._queue.put_nowait((exporter, event))
     
     def start_workers(self):
-        if not self._worker_task:
+        if not self._workers:
             for _ in range(self._num_workers):
                 task = asyncio.create_task(self._process_queue())
                 self._workers.append(task)
@@ -36,7 +36,7 @@ class ExporterRegistry:
                 self._exporters.remove(exporter)
                 logger.error(f"Exporter {exporter.__class__.__name__} has been removed from the registry due to the error. Retries consumed")
             finally:
-                logger.info(f"Finished processing event for exporter: {exporter.__class__.__name__} and event: {event.model_json_dump()}")
+                logger.info(f"Finished processing event for exporter: {exporter.__class__.__name__} and event: {event.model_dump_json()}")
                 self._queue.task_done()
     
     async def shutdown(self):
@@ -49,7 +49,7 @@ class ExporterRegistry:
             # make sure all workers have been cancelled, in case of errors of exceptions in cancel
             await asyncio.gather(*self._workers, return_exceptions=True)
             self._workers = []
-
+    
 
 # Global singleton instance of the ExporterRegistry
 registry = ExporterRegistry()

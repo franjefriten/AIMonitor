@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
 from datetime import datetime, UTC
 from enum import Enum
+from typing import Any
 
 class Status(str, Enum):
     """
@@ -17,9 +18,9 @@ class MCPEvent(BaseModel):
     """
     tool_name: str = Field(..., description="The name of the tool that generated the event.")
     args: dict = Field(..., description="The arguments passed to the tool that generated the event.")
-    timestamp: datetime = Field(..., description="The timestamp of when the event was generated.", default_factory=datetime.now(UTC))
-    delta: float = Field(..., description="The execution time of the event.", default=0.0)
-    status: Status  = Field(..., description="The status of the event.", default=Status.SUCCESS)
-    error: str = Field(..., description="The error message of the event if any.", default="")
-    metadata: str = Field(..., description="The metadata of the event.", default="")
-    result: dict = Field(..., description="The result of the event.", default={})
+    timestamp: datetime = Field(default_factory=datetime.now(UTC), description="The timestamp of when the event was generated.")
+    delta: float = Field(default=0.0, description="The execution time of the event.")
+    status: Status  = Field(default=Status.SUCCESS, description="The status of the event.")
+    error: str = Field(default="", description="The error message of the event if any.")
+    metadata: str = Field(default="", description="The metadata of the event.")
+    result: Any = Field(..., description="The result of the event.")

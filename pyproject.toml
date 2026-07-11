@@ -35,6 +35,3 @@ packages = ["core", "exporters", "utils"]
 [tool.uv]
 # Configuración específica para uv si quieres optimizar bloqueos
 package = true
-
-[pytest]
-asyncio_mode = auto

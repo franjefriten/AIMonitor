@@ -1,34 +1,35 @@
 import pytest
 import asyncio
-import pytest_asyncio
-from exporters.base import BaseExporter
-from core.registry import ExporterRegistry
 from core.registry import registry
-from datetime import datetime, UTC
+from exporters.base import BaseExporter
 from core.decorators import monitor_tool
-
-class MockExporter(BaseExporter):
-    async def export():
-        raise ConnectionError("Service Down")   
 
 @pytest.mark.asyncio
 async def test_tool_monitoring_workflow():
-    # 1. Setup: añadimos un exportador mockeado
-    mock = MockExporter()
-    registry.add_exporter(mock)
+    # 1. Store in a buffer all captured events
+    captured_events = []
+
+    # 2. Mock exporter will store those events
+    class SpyExporter(BaseExporter):
+        async def export(self, event):
+            captured_events.append(event)
+
+    spy = SpyExporter()
     
-    # 2. Definimos una tool mock
+    # Clean up registry and add spy mock
+    registry._exporters = [spy]
+    
+    # Define tool with decorator monitor_tool
     @monitor_tool
     async def sample_tool(name: str, api_key: str):
         return f"Hello {name}"
     
-    # 3. Ejecutamos
     await sample_tool(name="Gemini", api_key="secret_123")
     
-    # 4. Esperamos a que el worker procese (pequeño sleep por la async nature)
-    await asyncio.sleep(0.1)
-    
-    # 5. Verificaciones
-    assert len(mock.events) == 1
-    assert mock.events[0].tool_name == "sample_tool"
-    assert mock.events[0].arguments["api_key"] == "********" # Verificamos redacción
+    # shutdown exporters
+    await registry.shutdown()
+    # now check
+    assert len(captured_events) == 1
+    event = captured_events[0]
+    assert event.tool_name == "sample_tool"
+    assert event.args["api_key"] == "********"  # Verificamos redacción

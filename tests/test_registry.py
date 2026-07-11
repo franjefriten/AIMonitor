@@ -8,7 +8,7 @@ import asyncio
 
 
 @pytest.mark.asyncio
-def test_exporter_auto_removal_on_failure():
+async def test_exporter_auto_removal_on_failure():
     class FailingExporter(BaseExporter):
         async def export():
             raise ConnectionError("Service Down")
@@ -23,8 +23,9 @@ def test_exporter_auto_removal_on_failure():
     )
 
     registry = ExporterRegistry()
+    registry.start_workers()
     registry.register(exporter=FailingExporter())
     registry.dispatch(event=event)
-    asyncio.sleep(1)
+    await asyncio.sleep(3)
 
     assert len(registry._exporters) == 0
