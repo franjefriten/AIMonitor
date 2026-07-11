@@ -39,10 +39,15 @@ class ExporterRegistry:
                 logger.info(f"Finished processing event for exporter: {exporter.__class__.__name__} and event: {event.model_json_dump()}")
                 self._queue.task_done()
     
-    def shutdown(self):
+    async def shutdown(self):
+        # wait until all tasks are finished
+        await self._queue.join()
+
         if len(self._workers):
             for worker in self._workers:
                 worker.cancel()
+            # make sure all workers have been cancelled, in case of errors of exceptions in cancel
+            await asyncio.gather(*self._workers, return_exceptions=True)
             self._workers = []
 
 
