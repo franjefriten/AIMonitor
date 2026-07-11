@@ -18,6 +18,9 @@ class ExporterRegistry:
         self._exporters.append(exporter)
 
     def dispatch(self, event: MCPEvent):
+        if not self._workers:
+            self.start_workers()
+
         for exporter in self._exporters:
             self._queue.put_nowait((exporter, event))
     
@@ -31,7 +34,7 @@ class ExporterRegistry:
         while True:
             exporter, event = await self._queue.get()
             try:
-                await exporter.export_with_retries(event)
+                await exporter.export(event)
             except Exception as e:
                 self._exporters.remove(exporter)
                 logger.error(f"Exporter {exporter.__class__.__name__} has been removed from the registry due to the error. Retries consumed")
