@@ -21,4 +21,7 @@ class HTTPExporter(BaseExporter):
             except httpx.RequestError as e:
                 logger.error(f"An error occurred while sending the event to {self.endpoint}: {e}")
                 raise e
+            
+    async def export_batch(self, event_batch):
+        return await super().export_batch(event_batch)
         

@@ -4,7 +4,7 @@ This module provides a base class for all exporters, which can be extended to cr
 """
 from abc import ABC, abstractmethod
 from core.event import MCPEvent
-from typing import Callable
+from typing import Callable, List
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 class BaseExporter(ABC):
@@ -21,6 +21,15 @@ class BaseExporter(ABC):
         :return: The exported data in the desired format.
         """
         pass
+
+    @abstractmethod
+    async def export_batch(self, event_batch: List[MCPEvent]) -> None:
+        """
+        Export the give batch of events
+
+        :param event_batch: The event to be exported
+        :return: The exported data 
+        """
 
 def with_retry(func: Callable):
     return retry(
