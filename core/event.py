@@ -22,5 +22,5 @@ class MCPEvent(BaseModel):
     delta: float = Field(default=0.0, description="The execution time of the event.")
     status: Status  = Field(default=Status.SUCCESS, description="The status of the event.")
     error: str = Field(default="", description="The error message of the event if any.")
-    metadata: str = Field(default="", description="The metadata of the event.")
+    metadata: dict = Field(default="", description="The metadata of the event.")
     result: Any = Field(..., description="The result of the event.")
