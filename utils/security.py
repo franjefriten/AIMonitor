@@ -7,7 +7,7 @@ def redact_sensitive_data(data: dict, extra_sensitive_keys: set = {}) -> dict:
     :param data: The original dictionary containing data.
     :return: A new dictionary with sensitive data redacted.
     """
-
+    
     if not isinstance(data, dict):
         return data
         
