@@ -14,6 +14,9 @@ class AIMonitorSettings(BaseSettings):
     mongodb_url: Optional[str] = "mongodb://localhost:27017"
     postgres_url: Optional[str] = "postgresql://user:password@localhost/dbname"
 
+    # file size
+    max_bytes_per_file: float = 10.0
+
     # TODO: Add settings for logging levels
 
     # Search variables in environment that start with AIMONITOR_ and load them into the settings
