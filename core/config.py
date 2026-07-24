@@ -13,6 +13,7 @@ class AIMonitorSettings(BaseSettings):
     redis_url: Optional[str] = "redis://localhost:6379/0"
     mongodb_url: Optional[str] = "mongodb://localhost:27017"
     postgres_url: Optional[str] = "postgresql://user:password@localhost/dbname"
+    sqlite_url: Optional[str] = "sqlite:sqlite.db"
 
     # file size
     max_bytes_per_file: float = 10.0

@@ -3,9 +3,9 @@ from pathlib import Path
 from datetime import datetime, UTC
 import random
 
-# Asumiendo que tu clase está en mcp.exporters.file
 from exporters.file import FileExporter 
-from core.event import MCPEvent # Tu modelo de evento
+from exporters.sqlite import SQLiteExporter
+from core.event import MCPEvent 
 
 
 def _generate_mcp_event():
@@ -16,10 +16,11 @@ def _generate_mcp_event():
         error="",
         metadata="",
         delta=random.random(),
-        timestamp=datetime.now(UTC),
+        timestamp=datetime.now(UTC).strftime('%Y-%m-%d'),
         result={}
     )
 
+## FileExporter
 
 @pytest.mark.asyncio
 async def test_file_exporter_creates_file_and_writes(tmp_path):    
@@ -73,3 +74,25 @@ async def test_file_exporter_rotation(tmp_path):
 
     files = list(tmp_path.glob("*.jsonl"))
     assert len(files) >= 2
+
+
+## SQLiteExporter
+
+@pytest.mark.asyncio
+async def test_writes_to_sqlite():
+    sqlite_exporter = SQLiteExporter(dsn=":memory:", table_name="events")
+    batches = 20
+    batch_length = 50
+    try:
+        await sqlite_exporter.connect()
+        for _ in range(batches):
+            batch = [_generate_mcp_event() for _ in range(batch_length)]
+            await sqlite_exporter.export_batch(event_batch=batch)
+        
+        async with sqlite_exporter.client.execute("SELECT COUNT(*) FROM events;") as cursor:
+            row = await cursor.fetchone()
+            assert row[0] == batch_length * batches
+    finally:
+        await sqlite_exporter.close()
+    
+    

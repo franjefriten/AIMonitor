@@ -25,6 +25,9 @@ license = "MIT"
 redis = ["redis>=5.2.0"]
 # Para futuras integraciones de telemetría estándar
 telemetry = ["opentelemetry-api>=1.29.0", "opentelemetry-sdk>=1.29.0"]
+sqlite = [
+    "aiosqlite>=0.22.1",
+]
 
 [build-system]
 requires = ["setuptools>=61.0"]

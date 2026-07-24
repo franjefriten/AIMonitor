@@ -7,6 +7,7 @@ from core.event import MCPEvent
 from typing import Callable, List, Optional
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 import httpx
+from pathlib import Path
 
 class BaseExporter(ABC):
     """
@@ -74,6 +75,29 @@ class HTTPBaseExporter(BaseExporter):
         """
         for event in event_batch:
             await self.export(event)
+
+
+class BaseDatabaseExporter(BaseExporter):
+
+    def __init__(self, dsn: str | Path):
+        super().__init__()
+        self.dsn = dsn
+
+    @abstractmethod
+    async def _create_table_if_not_exists():
+        pass
+
+    @abstractmethod
+    async def _open_connection():
+        pass
+
+    async def connect(self):
+        await self._open_connection()
+        await self._create_table_if_not_exists()
+    
+    @abstractmethod
+    async def close():
+        pass
 
 
 def with_retry(func: Callable):
