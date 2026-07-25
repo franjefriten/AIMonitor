@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import Any, Optional
+from typing import Any, Optional, List, Literal
+
 
 class AIMonitorSettings(BaseSettings):
     """
@@ -14,7 +15,7 @@ class AIMonitorSettings(BaseSettings):
     mongodb_url: Optional[str] = "mongodb://localhost:27017"
     postgres_url: Optional[str] = "postgresql://user:password@localhost/dbname"
 
-    # TODO: Add settings for logging levels
+    level_log: Literal["error", "warning", "info"]
 
     # Search variables in environment that start with AIMONITOR_ and load them into the settings
     model_config = SettingsConfigDict(env_prefix="AIMONITOR_", env_file=".env", env_file_encoding="utf-8")
