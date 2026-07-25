@@ -11,6 +11,9 @@ All notable changes to this project are documented in this file.
 - Retry mechanism for exporters, including HTTP and Redis exporter support.
 - Asynchronous event dispatching through queueing in `ExporterRegistry`.
 - Basic unit tests for registry and tool monitoring workflows.
+- 2026-07-25: SQLite exporter with database table creation and batch export support.
+- 2026-07-24: File exporter with configurable rotation through `max_bytes_per_file`.
+- 2026-07-18: HTTP exporters with batch export support and improved console logging.
 
 ### Fixed
 - Ensure worker tasks start before queueing export events.
