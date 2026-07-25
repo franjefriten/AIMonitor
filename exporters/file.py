@@ -27,7 +27,7 @@ class FileExporter(BaseExporter):
     def __init__(
             self, base_uri: str | Path, 
             mode: Literal['a', 'w', 'x'] = 'a',
-            max_bytes: float = (1024 * settings.max_bytes_per_file * 1024)
+            max_bytes: float = (1024 * settings.max_mb_per_file * 1024)
         ):
         super().__init__()
         self.base_uri = Path(base_uri)

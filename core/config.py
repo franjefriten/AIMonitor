@@ -18,7 +18,7 @@ class AIMonitorSettings(BaseSettings):
 
 
     # file size
-    max_bytes_per_file: float = 10.0
+    max_mb_per_file: float = 10.0
 
     # TODO: Add settings for logging levels
 
@@ -34,6 +34,9 @@ def configure(
     grafana_url: Optional[str] = None,
     backend_url: Optional[str] = None,
     log_level: Optional[str] = None,
+    postgres_url: Optional[str] = None,
+    sqlite_url: Optional[str] = None,
+    max_mb_per_file: Optional[float] = 10.0,
     enable_telemetry: Optional[bool] = None
 ):
     """
@@ -62,5 +65,10 @@ def configure(
         settings.log_level = log_level
     if enable_telemetry is not None:
         settings.enable_telemetry = enable_telemetry
-
+    if postgres_url is not None:
+        settings.postgres_url = postgres_url
+    if sqlite_url is not None:
+        settings.sqlite_url = sqlite_url
+    if not max_mb_per_file: # guard againts crazy fuckers
+        settings.max_mb_per_file = 10
 
