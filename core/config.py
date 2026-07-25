@@ -14,6 +14,8 @@ class AIMonitorSettings(BaseSettings):
     mongodb_url: Optional[str] = "mongodb://localhost:27017"
     postgres_url: Optional[str] = "postgresql://user:password@localhost/dbname"
     sqlite_url: Optional[str] = "sqlite:sqlite.db"
+    prometheus_url: Optional[str] = "http://localhost:9000"
+
 
     # file size
     max_mb_per_file: float = 10.0
