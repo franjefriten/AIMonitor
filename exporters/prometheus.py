@@ -7,7 +7,7 @@ from exporters.base import BaseExporter
 from utils.logger import logger
 
 try:
-    from prometheus_client import CollectorRegistry, Counter, Histogram, REGISTRY, start_http_server
+    from prometheus_client import CollectorRegistry, Counter, Histogram, start_http_server
 except ImportError as exc:  # pragma: no cover - import guard
     raise ImportError(
         "prometheus_client is required for PrometheusExporter. Install it with pip install .[metrics]"
@@ -20,7 +20,7 @@ class PrometheusExporter(BaseExporter):
     def __init__(self, address: Optional[str] = None, registry: Optional[CollectorRegistry] = None):
         super().__init__()
         self.address = address or settings.prometheus_url
-        self.registry = registry if registry is not None else REGISTRY
+        self.registry = registry if registry is not None else CollectorRegistry(auto_describe=True)
         self._server_started = False
 
         parsed_url = urlparse(self.address)

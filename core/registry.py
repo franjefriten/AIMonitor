@@ -8,11 +8,18 @@ from utils.logger import logger
 from tenacity import retry
 
 class ExporterRegistry:
+    _instance = None
+
     def __init__(self):
         self._exporters: List[BaseExporter] = []
         self._num_workers: int = 5
         self._workers: List[asyncio.Task] = []
         self._queue = asyncio.Queue()
+
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
 
     def register(self, exporter: BaseExporter):
         self._exporters.append(exporter)
