@@ -1,8 +1,11 @@
 import pytest
 import pytest_asyncio
+
 from exporters.base import BaseExporter
 from core.registry import ExporterRegistry
 from core.event import MCPEvent
+from tests.conftest import _generate_mcp_event
+
 from datetime import datetime, UTC
 import asyncio
 import random
@@ -23,19 +26,7 @@ async def test_exporter_on_successful_events_batches():
         {"Pop": [1, 33, 2], "list_of_trues": [True, False, True, True]}
     ]
     
-    def _event_generator():
-        return MCPEvent(
-            tool_name=random.choice(tool_names),
-            args=random.choice(args_set),
-            timestamp=datetime.now(UTC),
-            delta=random.random(),
-            status=random.choice(["success", "failure", "error", "warning"]),
-            error="",
-            result={},
-            metadata={}
-        )
-    
-    events = [_event_generator() for _ in range(total_events)]
+    events = [_generate_mcp_event() for _ in range(total_events)]
 
     registry = ExporterRegistry(batch_size=3)
     registry.start_workers()
