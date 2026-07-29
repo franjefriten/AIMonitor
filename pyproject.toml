@@ -31,6 +31,10 @@ sqlite = [
 metrics = [
     "prometheus-client>=0.26.0",
 ]
+kafka = [
+    "confluent-kafka>=2.15.0",
+]
+
 
 [build-system]
 requires = ["setuptools>=61.0"]
