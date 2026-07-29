@@ -67,20 +67,18 @@ class HTTPBaseExporter(BaseExporter):
             self.client.aclose()
             self.client = None
 
-    @abstractmethod
     async def export(self, event: MCPEvent):
         """
         Abstract method of exportation
         """
-        pass
-    
+        await self.export_batch(event_batch=[event])
+
+    @abstractmethod
     async def export_batch(self, event_batch: List[MCPEvent]):
         """
         Export in batches
         """
-        for event in event_batch:
-            await self.export(event)
-
+        pass
 
 class BaseDatabaseExporter(BaseExporter):
 
