@@ -1,6 +1,5 @@
 from exporters.base import BaseExporter, HTTPBaseExporter
 from core.event import MCPEvent
-from core.config import settings
 from utils.logger import logger
 import httpx
 import asyncio
@@ -12,7 +11,9 @@ import sys, os
 from typing import Protocol
 import aiofiles
 from pathlib import Path
+from configs.config import get_settings
 
+settings = get_settings()
 
 # Tu Protocolo está perfecto
 class AsyncWritable(Protocol):
@@ -25,7 +26,7 @@ class AsyncWritable(Protocol):
 
 class FileExporter(BaseExporter):
     def __init__(
-            self, base_uri: str | Path, 
+            self, base_uri: str | Path = settings.file_exporter_logs, 
             mode: Literal['a', 'w', 'x'] = 'a',
             max_bytes: float = (1024 * settings.max_mb_per_file * 1024)
         ):

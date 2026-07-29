@@ -7,15 +7,15 @@ formatters:
 handlers:
   console:
     class: logging.StreamHandler
-    level: INFO # INFO and above (INFO, WARNING, ERROR, CRITICAL)
+    level: WARNING # ERROR/WARNING ONLY FOR PRO
     formatter: standard
     stream: ext://sys.stdout
     
   file:
     class: logging.FileHandler
-    level: DEBUG # Registers all events (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+    level: ERROR # ERROS ONLY TO AVOID FILE OVERLOAD
     formatter: standard
-    filename: mcp_monitor.log
+    filename: ai_monitor_error.log
     mode: a # Append 
 
 root:

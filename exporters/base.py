@@ -8,6 +8,11 @@ from typing import Callable, List, Optional
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 import httpx
 from pathlib import Path
+from configs.config import get_settings
+
+
+settings = get_settings()
+
 
 class BaseExporter(ABC):
     """
@@ -102,7 +107,7 @@ class BaseDatabaseExporter(BaseExporter):
 
 def with_retry(func: Callable):
     return retry(
-        stop=stop_after_attempt(3),
+        stop=stop_after_attempt(settings.retries_policy),
         retry=retry_if_exception((ConnectionError, TimeoutError)),
         wait=wait_exponential(),
         reraise=True

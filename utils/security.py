@@ -1,6 +1,8 @@
-from core.config import settings
+from configs.config import get_settings
 
-def redact_sensitive_data(data: dict, extra_sensitive_keys: set = {}) -> dict:
+settings = get_settings()
+
+def redact_sensitive_data(data: dict) -> dict:
     """
     Redacts sensitive data from a dictionary by replacing the values of specified keys with a placeholder.
 

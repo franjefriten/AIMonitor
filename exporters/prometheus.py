@@ -1,7 +1,7 @@
 from typing import List, Optional
 from urllib.parse import urlparse
 
-from core.config import settings
+from configs.config import settings
 from core.event import MCPEvent
 from exporters.base import BaseExporter
 from utils.logger import logger
