@@ -28,7 +28,7 @@ telemetry = ["opentelemetry-api>=1.29.0", "opentelemetry-sdk>=1.29.0"]
 sqlite = [
     "aiosqlite>=0.22.1",
 ]
-metrics = [
+prometheus = [
     "prometheus-client>=0.26.0",
 ]
 kafka = [

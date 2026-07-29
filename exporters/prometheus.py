@@ -10,7 +10,7 @@ try:
     from prometheus_client import CollectorRegistry, Counter, Histogram, start_http_server
 except ImportError as exc:  # pragma: no cover - import guard
     raise ImportError(
-        "prometheus_client is required for PrometheusExporter. Install it with pip install .[metrics]"
+        "prometheus_client is required for PrometheusExporter. Install it with pip install .[prometheus] or uv sync --extra prometheus"
     ) from exc
 
 
