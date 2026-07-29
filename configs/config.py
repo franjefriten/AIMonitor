@@ -29,7 +29,7 @@ class AIMonitorSettings(BaseSettings):
 
     model_config = SettingsConfigDict(
         env_prefix="AIMONITOR_",
-        env_file=(".env", ".env.prod"),
+        env_file=(".env.prod", ".env.stg", ".end.dev", ".env.local", ".end"),
         extra="ignore",
     )
 
