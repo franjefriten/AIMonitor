@@ -5,12 +5,19 @@ from pathlib import Path
 import yaml
 import aiofiles
 import json
+import os
+from enum import Enum
 from functools import lru_cache
 from urllib import parse
 from utils.logger import logger
 
 
 _VALID_URLS = ["mongodb://", "redis://", "postgres://", "http://", "https://"]
+
+class _VALID_ENV_CODE(Enum):
+    ENV: str = "ENV"
+    STG: str = "STG"
+    PRO: str = "PRO"
 
 class AIMonitorSettings(BaseSettings):
     """
@@ -42,9 +49,10 @@ class AIMonitorSettings(BaseSettings):
     postgres_url: Optional[AnyUrl] = Field(default="postgresql://user:password@localhost/dbname", description="postgres url to use", validation_alias="AIMONITOR_POSTGRES_URL")
     prometheus_url: Optional[HttpUrl] = Field(default="http://localhost:9000", description="prometheus url to use", validation_alias="AIMONITOR_PROMETHEUS_URL")
     sqlite_uri: Optional[FilePath] = Field(default="./sqlite_aimonitor.sqlite", description="sqlite path to use")
-    max_mb_per_file: Optional[float] = Field(default=10.0, description="max file size in megabytes")
-    retries_policy: Optional[int] = Field(default=3, description="number of retries for exporters")
-
+    max_mb_per_file: Optional[float] = Field(default=10.0, description="max file size in megabytes", gt=0)
+    retries_policy: Optional[int] = Field(default=3, description="number of retries for exporters", ge=0)
+    env_code: Optional[_VALID_ENV_CODE] = Field(default="ENV", description="environment code used for configs such as logs")
+    file_exporter_logs: Optional[FilePath] = Field(..., description="folder to which file exporter logs will be dumped into")
 
     async def load_from_yaml(self, yaml_file_path: str | Path) -> None:
         if isinstance(yaml_file_path, str):
@@ -100,19 +108,38 @@ class AIMonitorSettings(BaseSettings):
         if not any([v.startswith(prefix) for prefix in _VALID_URLS]):
             logger.error(f"Invalid url for service: {v}")
             raise ValueError(f"Invalid URL for service: {v}")
+        return v
     
     @field_validator("max_mb_per_file")
     @classmethod
     def validate_size(cls, v: Optional[float]) -> Optional[float]:
         if not isinstance(v, (float, int)):
-            logger.error("Max file size should be float or integer")
-            raise ValueError("Max file size should be float or integer")
+            logger.error(f"Max file size should be float or integer, not {type(v)}")
+            raise ValueError(f"Max file size should be float or integer, not {type(v)}")
         if not v > 0:
-            logger.error("Max file size logging should be positive")
-            raise ValueError("Max file size logging should be positive")
-        
+            logger.error(f"Max file size logging should be positive, not {type(v)}")
+            raise ValueError(f"Max file size logging should be positive, not {type(v)}")
+        return v
+    
+    @field_validator("retries_policy")
+    @classmethod
+    def validate_retries_policy(cls, v: Optional[int]) -> Optional[int]:
+        if not isinstance(v, (int, float)):
+            logger.error(f"Retries must be int or float, not {(type(v))}")
+            raise ValueError(f"Retries must be int or float, not {(type(v))}")
+        if not v >= 0:
+            logger.error(f"Retries policy must be greather or equal than 0")
+            raise ValueError(f"Retries policy must be greather or equal than 0")
+        return int(v)    
 
-        
+    @field_validator("env_code")
+    @classmethod
+    def validate_env_code(cls, v: Optional[Literal["ENV", "STG", "PRO"]]) -> Optional[Literal["ENV", "STG", "PRO"]]:
+        if v not in _VALID_ENV_CODE:
+            logger.error(f"env code {v} is not allowed, use {_VALID_ENV_CODE}")
+            raise ValueError(f"env code {v} is not allowed, use {_VALID_ENV_CODE}")
+        return v
+
 
 # singleton
 @lru_cache

@@ -3,8 +3,22 @@ import logging.config
 import yaml
 import os
 from pathlib import Path
+from configs.config import get_settings
 
-def setup_logging(default_path='logging_config.yaml', default_level=logging.INFO):
+settings = get_settings()
+
+def setup_logging(default_path: str = "./logging.dev.yaml", default_level = logging.INFO):
+    env_code = settings.env_code
+    match env_code:
+        case "ENV":
+            default_path = "./logging.dev.yaml"
+        case "STG":
+            default_path = "/logging.stg.yaml"
+        case "PRO":
+            default_path = "/logging.pro.yaml"
+        case _:
+            default_path = "./logging.dev.yaml"
+            
     path = Path(default_path)
     if path.exists():
         with open(path, 'rt') as f:
