@@ -4,8 +4,10 @@ This module provides a base class for all exporters, which can be extended to cr
 """
 from abc import ABC, abstractmethod
 from core.event import MCPEvent
-from typing import Callable
+from typing import Callable, List, Optional
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
+import httpx
+from pathlib import Path
 
 class BaseExporter(ABC):
     """
@@ -18,9 +20,85 @@ class BaseExporter(ABC):
         Export the given event to the desired format.
 
         :param event: The event to be exported.
-        :return: The exported data in the desired format.
         """
         pass
+
+    async def export_batch(self, event_batch: List[MCPEvent]) -> None:
+        """
+        Export the given batch of events to the desired format.
+
+        :param event_batch: The batch of events to be exported 
+        """
+        for event in event_batch:
+            await self.export(event)
+
+
+class HTTPBaseExporter(BaseExporter):
+    """
+    Base class for http exporters, uses httpx
+    """
+
+    def __init__(
+        self, 
+        url: str, 
+        auth: Optional[tuple | httpx.Auth] = None, 
+        headers: Optional[dict] = None
+    ):
+        self.url = url
+        self.headers = headers or {}
+        self.auth = auth
+        self.client: Optional[httpx.AsyncClient] = None
+
+    async def connect(self):
+        self.client = httpx.AsyncClient(
+            auth=self.auth,
+            headers=self.headers,
+            base_url=self.url,
+            timeout=1.0
+        )
+    
+    async def close(self):
+        if self.client:
+            self.client.aclose()
+            self.client = None
+
+    @abstractmethod
+    async def export(self, event: MCPEvent):
+        """
+        Abstract method of exportation
+        """
+        pass
+    
+    async def export_batch(self, event_batch: List[MCPEvent]):
+        """
+        Export in batches
+        """
+        for event in event_batch:
+            await self.export(event)
+
+
+class BaseDatabaseExporter(BaseExporter):
+
+    def __init__(self, dsn: str | Path):
+        super().__init__()
+        self.dsn = dsn
+
+    @abstractmethod
+    async def _create_table_if_not_exists():
+        pass
+
+    @abstractmethod
+    async def _open_connection():
+        pass
+
+    async def connect(self):
+        await self._open_connection()
+        await self._create_table_if_not_exists()
+    
+    @abstractmethod
+    async def close():
+        pass
+
 
 def with_retry(func: Callable):
     return retry(

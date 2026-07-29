@@ -6,6 +6,7 @@ authors = [
     {name = "Francisco Jesús Frías Tenza", email = "fj.friastenza@gmail.com"}
 ]
 dependencies = [
+    "aiofiles>=25.1.0",
     "httpx>=0.28.1",
     "pydantic>=2.10.0",
     "pydantic-settings>=2.7.0",
@@ -24,6 +25,12 @@ license = "MIT"
 redis = ["redis>=5.2.0"]
 # Para futuras integraciones de telemetría estándar
 telemetry = ["opentelemetry-api>=1.29.0", "opentelemetry-sdk>=1.29.0"]
+sqlite = [
+    "aiosqlite>=0.22.1",
+]
+metrics = [
+    "prometheus-client>=0.26.0",
+]
 
 [build-system]
 requires = ["setuptools>=61.0"]
