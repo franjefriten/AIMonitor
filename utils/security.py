@@ -1,4 +1,4 @@
-from core.config import settings
+from configs.config import settings
 
 def redact_sensitive_data(data: dict, extra_sensitive_keys: set = {}) -> dict:
     """
