@@ -1,5 +1,5 @@
 from exporters.base import BaseDatabaseExporter
-from core.config import settings
+from configs.config import get_settings
 from utils.logger import logger
 from core.event import MCPEvent
 from typing import List
@@ -7,9 +7,10 @@ import json
 from datetime import datetime
 from enum import Enum
 
+settings = get_settings()
 
 class SQLiteExporter(BaseDatabaseExporter):
-    def __init__(self, dsn: str = settings.sqlite_url, table_name: str = "events"):
+    def __init__(self, dsn: str = settings.sqlite_uri, table_name: str = "events"):
         super().__init__(dsn=dsn)
         try:
             import aiosqlite

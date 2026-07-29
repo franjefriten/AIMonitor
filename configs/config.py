@@ -10,10 +10,41 @@ import yaml
 from pydantic import AnyUrl, Field, FilePath, HttpUrl, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from utils.logger import logger
+import logging
+from logging import getLogger, config
 
 _VALID_URLS = ["mongodb://", "redis://", "postgres://", "postgresql://", "http://", "https://"]
 
+LOGGING_CONFIG = {
+    "version": 1,
+    "disable_existing_config_loggers": False,
+    "formatters": {
+        "standard": {
+            "format": "%(asctime)s [%(levelname)s] %(name)s - %(filename)s:%(lineno)d: %(message)s"
+        }
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "level": "INFO",
+            "formatter": "standard",
+            "stream": "ext://sys.stdout",
+        },
+        "file": {
+            "class": "logging.FileHandler",
+            "level": "DEBUG",
+            "formatter": "standard",
+            "filename": "mcp_monitor.log",
+            "mode": "a",
+        },
+    },
+    "root": {
+        "level": "DEBUG",
+        "handlers": ["console", "file"],
+    },
+}
+config.dictConfig(config=LOGGING_CONFIG)
+config_logger = getLogger("AIMonitor.Config") # avoid circular import
 
 class _VALID_ENV_CODE(str, Enum):
     ENV = "ENV"
@@ -75,7 +106,7 @@ class AIMonitorSettings(BaseSettings):
     async def load_from_yaml(self, yaml_file_path: str | Path) -> None:
         yaml_file_path = Path(yaml_file_path)
         if not yaml_file_path.exists():
-            logger.error("YAML config file was not found")
+            config_logger.error("YAML config file was not found")
             raise FileNotFoundError("YAML config file was not found")
 
         async with aiofiles.open(yaml_file_path, mode="r", encoding="utf-8") as file:
@@ -88,12 +119,12 @@ class AIMonitorSettings(BaseSettings):
             for field, value in updated_instance.model_dump().items():
                 setattr(self, field, value)
 
-        logger.info("YAML config file was loaded into AIMonitor settings")
+        config_logger.info("YAML config file was loaded into AIMonitor settings")
 
     async def load_from_json(self, json_file_path: str | Path) -> None:
         json_file_path = Path(json_file_path)
         if not json_file_path.exists():
-            logger.error("JSON config file was not found")
+            config_logger.error("JSON config file was not found")
             raise FileNotFoundError("JSON config file was not found")
 
         async with aiofiles.open(json_file_path, mode="r", encoding="utf-8") as file:
@@ -106,7 +137,7 @@ class AIMonitorSettings(BaseSettings):
             for field, value in updated_instance.model_dump().items():
                 setattr(self, field, value)
 
-        logger.info("JSON config file was loaded into AIMonitor settings")
+        config_logger.info("JSON config file was loaded into AIMonitor settings")
 
     @field_validator("redis_url", "mongodb_url", "postgres_url", mode="before")
     @classmethod

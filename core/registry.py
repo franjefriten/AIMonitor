@@ -11,11 +11,14 @@ from tenacity import retry
 class ExporterRegistry:
     _instance = None
 
-    def __init__(self):
+    def __init__(self, batch_size: int = 10, flush_delta: float = 1.0, num_workers: int = 5):
         self._exporters: List[BaseExporter] = []
-        self._num_workers: int = 5
+        self._num_workers = num_workers
         self._workers: List[asyncio.Task] = []
         self._queue = asyncio.Queue()
+        self.batch: List[MCPEvent] = []
+        self.batch_size = batch_size
+        self.flush_delta = flush_delta
 
     def __new__(cls, *args, **kwargs):
         if cls._instance is None:
