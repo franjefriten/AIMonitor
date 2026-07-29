@@ -71,8 +71,7 @@ class ExporterRegistry:
                     logger.error("Error found while sending batch of events")
                 finally:
                     logger.info("Finished processing event batch")
-                    for _ in self.batch:
-                        self._queue.task_done()
+                    self._queue.task_done()
                     last_flush = now
                     self.batch = []
 
