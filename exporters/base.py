@@ -19,23 +19,22 @@ class BaseExporter(ABC):
     Base class for all exporters. This class defines the interface that all exporters must implement.
     """
 
-    @abstractmethod
     async def export(self, event: MCPEvent) -> None:
         """
         Export the given event to the desired format.
 
         :param event: The event to be exported.
         """
-        pass
+        await self.export_batch(event_batch=[event])
 
+    @abstractmethod
     async def export_batch(self, event_batch: List[MCPEvent]) -> None:
         """
         Export the given batch of events to the desired format.
 
         :param event_batch: The batch of events to be exported 
         """
-        for event in event_batch:
-            await self.export(event)
+        pass
 
 
 class HTTPBaseExporter(BaseExporter):
