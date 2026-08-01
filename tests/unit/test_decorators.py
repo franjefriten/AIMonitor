@@ -19,7 +19,7 @@ async def test_tool_monitoring_workflow():
     spy = SpyExporter()
     
     # Clean up registry and add spy mock
-    registry._exporters = [spy]
+    registry.register(exporter=spy)
     
     # Define tool with decorator monitor_tool
     @monitor_tool

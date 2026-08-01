@@ -11,27 +11,48 @@ from tenacity import retry
 class ExporterRegistry:
     _instance = None
 
-    def __init__(self, batch_size: int = 10, flush_delta: float = 1.0, num_workers: int = 5):
+    def __init__(self, batch_size: int = 10, flush_delta: float = 1.0, num_workers: int = 5, register_console: bool = False):
         self._exporters: List[BaseExporter] = []
         self._num_workers = num_workers
         self._workers: List[asyncio.Task] = []
-        self._queue = asyncio.Queue()
+        self._queue: asyncio.Queue | None = None
         self.batch: List[MCPEvent] = []
         self.batch_size = batch_size
         self.flush_delta = flush_delta
+        self._loop = None
+        self._register_console = register_console
 
     def __new__(cls, *args, **kwargs):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
 
+    def _ensure_queue_exists(self):
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        self._loop = loop
+        if loop is None:
+            return False
+
+        if self._queue is None:
+            self._queue = asyncio.Queue()
+            if self._register_console and not self._exporters:
+                self.register(ConsoleExporter())
+
+        return True
+
     def register(self, exporter: BaseExporter):
         self._exporters.append(exporter)
 
     def dispatch(self, events: List[MCPEvent] | MCPEvent):
+        if not self._ensure_queue_exists():
+            return
         if not self._workers:
             self.start_workers()
-        
+
         if isinstance(events, list):
             for e in events:
                 self._queue.put_nowait(e)
@@ -39,6 +60,8 @@ class ExporterRegistry:
             self._queue.put_nowait(events)
 
     def start_workers(self):
+        if not self._ensure_queue_exists():
+            return
         if not self._workers:
             for _ in range(self._num_workers):
                 task = asyncio.create_task(self._process_queue())
@@ -71,7 +94,8 @@ class ExporterRegistry:
                     logger.error("Error found while sending batch of events")
                 finally:
                     logger.info("Finished processing event batch")
-                    self._queue.task_done()
+                    for _ in self.batch:
+                        self._queue.task_done()
                     last_flush = now
                     self.batch = []
 
@@ -88,15 +112,24 @@ class ExporterRegistry:
             self._exporters.pop(exporter_index)
     
     async def shutdown(self):
-        # wait until all tasks are finished
+        if self._queue is None:
+            return
+
         await self._queue.join()
 
-        if len(self._workers):
-            for worker in self._workers:
-                worker.cancel()
-            # make sure all workers have been cancelled, in case of errors of exceptions in cancel
+        for worker in self._workers:
+            worker.cancel()
+        if self._workers:
             await asyncio.gather(*self._workers, return_exceptions=True)
-            self._workers = []
+
+        for exporter in self._exporters:
+            if hasattr(exporter, 'close'):
+                await exporter.close()
+
+        self._workers = []
+        self.batch = []
+        self._exporters = []
+        self._queue = None
     
 
 # Global singleton instance of the ExporterRegistry
