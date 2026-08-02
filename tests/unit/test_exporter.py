@@ -68,6 +68,10 @@ async def test_file_exporter_rotation(tmp_path):
 
 @pytest.mark.asyncio
 async def test_writes_to_sqlite():
+    try:
+        import aiosqlite
+    except ImportError:
+        pytest.skip("aiosqlite is not installed, skipping SQLiteExporter test.")
     sqlite_exporter = SQLiteExporter(dsn=":memory:", table_name="events")
     batches = 20
     batch_length = 50

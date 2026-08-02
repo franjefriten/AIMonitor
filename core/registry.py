@@ -46,14 +46,16 @@ class ExporterRegistry:
     def register(self, exporter: BaseExporter):
         self._exporters.append(exporter)
 
-    def dispatch(self, events: List[MCPEvent] | MCPEvent):
+    async def dispatch(self, events: List[MCPEvent] | MCPEvent):
         if not self._ensure_queue_exists():
+            logger.error("Queue does not exist, aborting the dispatch!")
             return
         if not self._workers:
             self.start_workers()
 
         if isinstance(events, list):
             for e in events:
+                logger.info(f"Enqueueing event with id '{e.id}'")
                 self._queue.put_nowait(e)
         else:
             self._queue.put_nowait(events)
@@ -88,10 +90,11 @@ class ExporterRegistry:
             )
 
             if should_flush:
+                logger.info(f"Flushing batch with {len(batch)} elements with ids: {', '.join(e.id for e in batch)}")
                 try:
                     await self._send_batch(batch)
                 except Exception:
-                    logger.error("Error found while sending batch of events")
+                    logger.error(f"Error found while sending batch of events! ids: {', '.join(e.id for e in batch)}")
                 finally:
                     logger.info("Finished processing event batch")
                     for _ in batch:
@@ -104,9 +107,9 @@ class ExporterRegistry:
         for i, exporter in enumerate(self._exporters):
             try:
                 await exporter.export_batch(batch)
-            except:
+            except Exception as exc:
                 exporter_name = exporter.__class__.__name__
-                logger.error(f"Exporter {exporter_name} failed to exporter event batch, popping it from list")
+                logger.error(f"Exporter {exporter_name} failed to exporter event batch, popping it from list, error: {repr(exc)}")
                 failed_exporters.append(i)
         for exporter_index in failed_exporters:
             self._exporters.pop(exporter_index)
@@ -134,5 +137,3 @@ class ExporterRegistry:
 
 # Global singleton instance of the ExporterRegistry
 registry = ExporterRegistry()
-# add default console register
-registry.register(ConsoleExporter())
