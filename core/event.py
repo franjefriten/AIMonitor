@@ -3,6 +3,7 @@ from datetime import datetime, UTC
 from enum import Enum
 from typing import Any, Dict
 from uuid import uuid4
+import socket
 
 
 class Status(str, Enum):
@@ -48,6 +49,10 @@ class BaseSignal(BaseModel):
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC), description="The timestamp of when the signal was generated.")
     event_type: SignalType
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata associated with the signal.")
+    environment: str = Field(default="", description="The environment in which the signal was generated, e.g., 'production', 'staging', etc.")
+    hostname: str = Field(default_factory=lambda: socket.gethostname(), description="The hostname of the machine where the signal was generated.")
+    version: str = Field(default="", description="The version of the application or service generating the signal.")
+
 
     @classmethod
     def as_sqlite_table(cls, table_name: str = "signal") -> str:

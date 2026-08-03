@@ -14,7 +14,8 @@ settings = get_settings()
 
 def monitor_tool(
         track_duration: bool = True,
-        track_call_count: bool = True
+        track_call_count: bool = True,
+        version: str = ""
     ) -> Callable:
     """
     Decorator used to monitor general tools executed by agents. Must be used as a wrapper
@@ -99,6 +100,8 @@ def monitor_tool(
                             status=status,
                             error=error_message,
                             delta=delta,
+                            environment=settings.env_code,
+                            version=version
                         )
                     if settings.enabled and settings.track_metrics and track_duration:
                         logger.info(f"Emiting tool metrics event for {func.__name__}")
@@ -106,7 +109,9 @@ def monitor_tool(
                             name="tool_execution_duration_seconds",
                             value=delta,
                             metric_type="histogram",
-                            labels={"tool_name": func.__name__, "status": status}
+                            labels={"tool_name": func.__name__, "status": status},
+                            environment=settings.env_code,
+                            version=version
                         )
                     if settings.enabled and settings.track_metrics and track_call_count:
                         logger.info(f"Emiting tool metrics event for {func.__name__}")
@@ -114,7 +119,9 @@ def monitor_tool(
                             name="tool_execution_count",
                             value=1,
                             metric_type="counter",
-                            labels={"tool_name": func.__name__, "status": status}
+                            labels={"tool_name": func.__name__, "status": status},
+                            environment=settings.env_code,
+                            version=version
                         )
                     logger.info(f"Tool '{func.__name__}' monitored in {delta:.4f}s")
                 except Exception as registry_err:
@@ -126,7 +133,8 @@ def monitor_tool(
 
 async def record_log(
         message: str, 
-        level: Literal["critical", "error", "warning", "info", "debug"] = "info", 
+        level: Literal["critical", "error", "warning", "info", "debug"] = "info",
+        version: str = "",
         *args, 
         **kwargs
     ):
@@ -140,6 +148,8 @@ async def record_log(
     - level (str: critical|error|warning|info|debug) -- log level, default to info
     - *args
     - **kwargs
+
+    NOTE: kwargs are redacted to remove sensitive data before dispatching to exporters and added to metadata field of the log signal
     
     Return: None
     """
@@ -148,7 +158,9 @@ async def record_log(
     await monitor.log(
         message=message,
         level=level,
-        metadata={**kwargs, "extra_data": args}
+        metadata={**kwargs, "extra_data": args},
+        environment=settings.env_code,
+        version=version
     )
 
 
@@ -225,6 +237,7 @@ def track_tool_call_event(func: Callable) -> Callable:
                         status=status,
                         error=error_message,
                         delta=delta,
+                        environment=settings.env_code,
                     )
                 logger.info(f"Tool '{func.__name__}' monitored in {delta:.4f}s")
             except Exception as registry_err:
@@ -307,14 +320,16 @@ def track_tool_metrics(
                             name="tool_execution_duration_seconds",
                             value=delta,
                             metric_type="histogram",
-                            labels={"tool_name": func.__name__, "status": status}
+                            labels={"tool_name": func.__name__, "status": status},
+                            environment=settings.env_code
                         )
                     if settings.enabled and settings.track_metrics and track_call_count:
                         await monitor.record_metric(
                             name="tool_execution_count",
                             value=1,
                             metric_type="counter",
-                            labels={"tool_name": func.__name__, "status": status}
+                            labels={"tool_name": func.__name__, "status": status},
+                            environment=settings.env_code
                         )
                     logger.info(f"Tool '{func.__name__}' monitored in {delta:.4f}s")
                 except Exception as registry_err:
