@@ -8,7 +8,7 @@ from core.event import MCPEvent, SignalType, LogEvent, MetricEvent, Status, LogS
 from core.registry import registry
 from utils.logger import logger
 from configs.config import get_settings
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, contextmanager
 from utils.context import _span_context
 
 settings = get_settings()
@@ -117,7 +117,7 @@ class ObservabilityAPI:
         return event
 
     @asynccontextmanager
-    async def span(self, operation_name: str, metadata: Optional[dict] = None):
+    async def aspan(self, operation_name: str, metadata: Optional[dict] = None):
         """Asynchronous context manager for creating a span event."""
         if not settings.track_events:
             logger.error(
@@ -167,7 +167,7 @@ class ObservabilityAPI:
             logger.info(f"Span event with id '{span_event.id}' dispatched")
             _span_context.reset(token)
 
-    @asynccontextmanager
+    @contextmanager
     def span(self, operation_name: str, metadata: Optional[dict] = None):
         """Synchronous context manager for creating a span event."""
         if not settings.track_events:
