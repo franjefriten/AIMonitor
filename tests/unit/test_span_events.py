@@ -1,7 +1,7 @@
 from core.event import BaseSignal, SignalType, MCPEvent, LogEvent, MetricEvent, SpanEvent
 from core.observability import monitor
 from core.registry import registry
-from core.decorators import monitor_tool
+from core.decorators import monitor_tool, track_tool_call_event, track_tool_metrics
 
 from typing import Any, Dict, List, Optional
 import asyncio
@@ -87,3 +87,43 @@ async def test_emit_multi_span_event():
 
     await registry.shutdown()
 
+
+@pytest.mark.asyncio
+async def test_emit_span_from_many_decorators():
+    captured = []
+
+    class SpyExporter:
+        async def export(self, event):
+            captured.append(event)
+
+        async def export_batch(self, event_batch):
+            captured.extend(event_batch)
+
+    registry.register(exporter=SpyExporter())
+
+    @monitor_tool(track_duration=True, track_call_count=True)
+    async def sample_function():
+        await asyncio.sleep(0.1)
+        async with monitor.span("nested_span") as span:
+            pass
+
+    @track_tool_call_event
+    async def sample_function_with_call_event():
+        await asyncio.sleep(0.1)
+        async with monitor.span("nested_span") as span:
+            pass
+
+    await sample_function()
+    await sample_function_with_call_event()
+    await asyncio.sleep(0.3)
+
+    assert any(isinstance(event, SpanEvent) for event in captured)
+    assert any(isinstance(event, MCPEvent) for event in captured)
+    assert any(isinstance(event, MetricEvent) for event in captured)
+
+    assert len([event for event in captured if isinstance(event, SpanEvent)]) == 2
+    assert len([event for event in captured if isinstance(event, MCPEvent)]) == 2 # one for each decorator (monitor_tool and track_tool_call_event)
+    assert len([event for event in captured if isinstance(event, MetricEvent)]) == 2 # one for track_duration and track_call_count
+
+    await registry.shutdown()
+    
