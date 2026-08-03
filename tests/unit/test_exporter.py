@@ -81,7 +81,7 @@ async def test_writes_to_sqlite():
             batch = [_generate_mcp_event() for _ in range(batch_length)]
             await sqlite_exporter.export_batch(event_batch=batch)
         
-        async with sqlite_exporter.client.execute("SELECT COUNT(*) FROM events;") as cursor:
+        async with sqlite_exporter.client.execute("SELECT COUNT(*) FROM events_event;") as cursor:
             row = await cursor.fetchone()
             assert row[0] == batch_length * batches
     finally:

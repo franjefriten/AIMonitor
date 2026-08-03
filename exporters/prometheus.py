@@ -2,7 +2,7 @@ from typing import List, Optional
 from urllib.parse import urlparse
 
 from configs.config import settings
-from core.event import MCPEvent
+from core.event import BaseSignal, SignalType
 from exporters.base import BaseExporter
 from utils.logger import logger
 
@@ -15,7 +15,9 @@ except ImportError as exc:  # pragma: no cover - import guard
 
 
 class PrometheusExporter(BaseExporter):
-    """Exporter that exposes AIMonitor events as Prometheus metrics."""
+    """Exporter that exposes AIMonitor events as Prometheus metrics. Only allows `MetricEvents` to be exported, and will ignore any other event type. This exporter is intended to be used with Prometheus, which will scrape the metrics from the specified address."""
+
+    SUPPORTED_SIGNALS = {SignalType.METRIC}
 
     def __init__(self, address: Optional[str] = None, registry: Optional[CollectorRegistry] = None):
         super().__init__()
@@ -46,11 +48,18 @@ class PrometheusExporter(BaseExporter):
         start_http_server(port=self.port, addr=self.addr, registry=self.registry)
         self._server_started = True
 
-    async def export(self, event: MCPEvent) -> None:
+    async def export(self, event: BaseSignal) -> None:
         await self.export_batch([event])
 
-    async def export_batch(self, event_batch: List[MCPEvent]) -> None:
+    async def export_batch(self, event_batch: List[BaseSignal]) -> None:
         for event in event_batch:
+            if event.event_type not in self.SUPPORTED_SIGNALS:
+                logger.warning(
+                    "Event type '%s' with id: '%s' is not supported by PrometheusExporter. Skipping export for event.",
+                    event.event_type,
+                    event.id
+                )
+                continue
             status = event.status.value if hasattr(event.status, "value") else str(event.status)
             self.counter.labels(tool_name=event.tool_name, status=status).inc()
             self.histogram.labels(tool_name=event.tool_name).observe(event.delta)

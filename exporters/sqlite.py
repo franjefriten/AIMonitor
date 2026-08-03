@@ -1,7 +1,7 @@
 from exporters.base import BaseDatabaseExporter
 from configs.config import get_settings
 from utils.logger import logger
-from core.event import MCPEvent
+from core.event import BaseSignal, SignalType, MCPEvent, LogEvent, MetricEvent
 from typing import List
 import json
 from datetime import datetime
@@ -9,7 +9,22 @@ from enum import Enum
 
 settings = get_settings()
 
+SIGNAL_TABLE_SUFFIX = {
+    SignalType.EVENT: "event",
+    SignalType.LOG: "log",
+    SignalType.METRIC: "metric",
+}
+
+SIGNAL_MODEL_MAP = {
+    SignalType.EVENT: MCPEvent,
+    SignalType.LOG: LogEvent,
+    SignalType.METRIC: MetricEvent,
+}
+
 class SQLiteExporter(BaseDatabaseExporter):
+
+    SUPPORTED_SIGNALS = {SignalType.EVENT, SignalType.LOG, SignalType.METRIC}
+
     def __init__(self, dsn: str = settings.sqlite_uri, table_name: str = "events"):
         super().__init__(dsn=dsn)
         try:
@@ -26,57 +41,65 @@ class SQLiteExporter(BaseDatabaseExporter):
         self.client = None
         self.table_name = table_name
 
+    def _signal_table_name(self, signal_type: SignalType) -> str:
+        suffix = SIGNAL_TABLE_SUFFIX.get(signal_type, signal_type.value)
+        return f"{self.table_name}_{suffix}"
+
+    def _serialize_value(self, value):
+        if isinstance(value, datetime):
+            return value.isoformat()
+        if isinstance(value, (dict, list)):
+            return json.dumps(value)
+        if isinstance(value, Enum):
+            return value.value
+        return value
+
+    def _create_table_sql(self, signal_type: SignalType) -> str:
+        model = SIGNAL_MODEL_MAP[signal_type]
+        table_name = self._signal_table_name(signal_type)
+        return model.as_sqlite_table(table_name=table_name)
+
     async def _open_connection(self):
         self.client = await self.aiosqlite.connect(database=self.dsn)
-        await self.client.execute("PRAGMA journal_mode=WAL;") # Faster execution
+        await self.client.execute("PRAGMA journal_mode=WAL;")
         await self.client.commit()
-    
+
     async def _create_table_if_not_exists(self):
-        query = MCPEvent.as_sqlite_table(table_name=self.table_name)
-        print(query)
-        await self.client.execute(query)
+        for signal_type in SignalType:
+            if signal_type not in SIGNAL_MODEL_MAP:
+                continue
+            query = self._create_table_sql(signal_type)
+            await self.client.execute(query)
+        await self.client.commit()
 
     async def close(self):
         if self.client:
             await self.client.close()
             self.client = None
 
-    async def export(self, event: MCPEvent):
+    async def export(self, event: BaseSignal):
         await self.export_batch([event])
     
-    async def export_batch(self, event_batch: List[MCPEvent]):
+    async def export_batch(self, event_batch: List[BaseSignal]):
         if not self.client:
             raise RuntimeError(f"client for {self.__class__.__name__} not initialized")
-        
-        field_names = MCPEvent.model_fields
-        columns = ", ".join(field_names)
-        data = []
-        for e in event_batch:
-            row_values = []
-            for field in field_names:
-                val = getattr(e, field)
-                
-                # 1. DEPRECATED: datetime no longer supported for sqlite3 adapters, convert to ISO string
-                if isinstance(val, datetime):
-                    val = val.isoformat()
-                # 2. If dict or list, serialize to json for BLOB management
-                elif isinstance(val, (dict, list)):
-                    import json
-                    val = json.dumps(val)
-                # 3. If enum, pick up native value
-                elif isinstance(val, Enum):
-                    val = val.value
-                    
-                row_values.append(val)
-            
-            data.append(tuple(row_values))     
-        placeholders = ", ".join(["?" for _ in range(len(field_names))])
-        await self.client.executemany(
-            f"INSERT OR REPLACE INTO {self.table_name} ({columns}) VALUES ({placeholders})",
-            data
-        )
+
+        batches: dict[str, List[BaseSignal]] = {}
+        for event in event_batch:
+            table_name = self._signal_table_name(event.event_type)
+            batches.setdefault(table_name, []).append(event)
+
+        for table_name, events in batches.items():
+            field_names = list(events[0].__class__.model_fields.keys())
+            columns = ", ".join(field_names)
+            placeholders = ", ".join(["?" for _ in field_names])
+            rows = []
+            for event in events:
+                row = [self._serialize_value(getattr(event, field)) for field in field_names]
+                rows.append(tuple(row))
+            await self.client.executemany(
+                f"INSERT OR REPLACE INTO {table_name} ({columns}) VALUES ({placeholders})",
+                rows,
+            )
 
         await self.client.commit()
-        
-        
-    

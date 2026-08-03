@@ -14,6 +14,16 @@ settings = get_settings()
 class ObservabilityAPI:
     """Public entry point for emitting structured observability signals."""
 
+    async def emit_event(self, event: BaseSignal) -> None:
+        if not settings.track_events:
+            logger.error(
+                """Events are not being tracked by aimonitor due to environment configuration. 
+                Check env vars or .yaml/.json config file"""
+            )
+            return None
+        await registry.dispatch(events=[event])
+        logger.info(f"Event with id: '{event.id}' dispatched")
+
     async def emit_tool_execution_event(
         self,
         tool_name: str,
@@ -24,7 +34,13 @@ class ObservabilityAPI:
         delta: float = 0.0,
         timestamp: datetime | None = None,
         metadata: dict | None = None,
-    ) -> MCPEvent:
+    ) -> BaseSignal:
+        if not settings.track_events:
+            logger.error(
+                """Events are not being tracked by aimonitor due to environment configuration. 
+                Check env vars or .yaml/.json config file"""
+            )
+            return None
         event = MCPEvent(
             tool_name=tool_name,
             args=args or {},
@@ -52,10 +68,7 @@ class ObservabilityAPI:
                 """Logs are not being tracked by aimonitor due to environment configuration. 
                 Check env vars or .yaml/.json config file"""
             )
-            raise RuntimeError(
-                """Logs are not being tracked by aimonitor due to environment configuration. 
-                Check env vars or .yaml/.json config file"""
-            )
+            return None
         event = LogEvent(
             message = message,
             metadata = metadata,
@@ -73,7 +86,13 @@ class ObservabilityAPI:
         metric_type: MetricType = MetricType.GAUGE,
         labels: dict | None = None,
         metadata: dict | None = None,
-    ) -> MCPEvent:
+    ) -> BaseSignal:
+        if not settings.track_metrics:
+            logger.error(
+                """Metrics are not being tracked by aimonitor due to environment configuration. 
+                Check env vars or .yaml/.json config file"""
+            )
+            return None
         event = MetricEvent(
             name=name,
             value=value,

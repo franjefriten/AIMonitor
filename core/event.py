@@ -49,10 +49,12 @@ class BaseSignal(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata associated with the signal.")
 
     @classmethod
-    def as_sqlite_table(cls, table_name: str = "events") -> str:
+    def as_sqlite_table(cls, table_name: str = "signal") -> str:
         vars = cls.model_fields
-        columns = ["    id INTEGER PRIMARY KEY AUTOINCREMENT"]
+        columns = ["    id TEXT PRIMARY KEY"]
         for var_name, var_metadata in vars.items():
+            if var_name == "id":
+                continue
             var_type = var_metadata.annotation
             sql_type = _MAP_SQLITE_TYPING.get(var_type, "TEXT")
             columns.append(f"    {var_name} {sql_type}")
