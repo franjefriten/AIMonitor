@@ -12,7 +12,7 @@ class WebhookExporter(HTTPBaseExporter):
     Exporter for HTTP, used to send events to an HTTP endpoint.
     """
 
-    SUPPORTED_SIGNALS = {SignalType.EVENT, SignalType.LOG, SignalType.METRIC}
+    SUPPORTED_SIGNALS = {SignalType.EVENT, SignalType.LOG, SignalType.METRIC, SignalType.SPAN}
     
     def __init__(self, url, headers=None, auth=None):
         super().__init__(url=url, headers=headers, auth=auth)

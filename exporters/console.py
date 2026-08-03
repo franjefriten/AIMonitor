@@ -15,7 +15,7 @@ class ConsoleExporter(BaseExporter):
     """
     Basic exporter that prints events to the console. This exporter is primarily intended for debugging and development purposes, allowing developers to see the events being processed in real-time.
     """
-    SUPPORTED_SIGNALS = {SignalType.EVENT, SignalType.LOG, SignalType.METRIC}  # logs everything    
+    SUPPORTED_SIGNALS = {SignalType.EVENT, SignalType.LOG, SignalType.METRIC, SignalType.SPAN}  # logs everything    
     
     def __init__(self, stream: io.TextIOBase = sys.stdout):
         super().__init__()

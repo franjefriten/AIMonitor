@@ -1,7 +1,7 @@
 from exporters.base import BaseDatabaseExporter
 from configs.config import get_settings
 from utils.logger import logger
-from core.event import BaseSignal, SignalType, MCPEvent, LogEvent, MetricEvent
+from core.event import BaseSignal, SignalType, MCPEvent, LogEvent, MetricEvent, SpanEvent
 from typing import List
 import json
 from datetime import datetime
@@ -13,17 +13,19 @@ SIGNAL_TABLE_SUFFIX = {
     SignalType.EVENT: "event",
     SignalType.LOG: "log",
     SignalType.METRIC: "metric",
+    SignalType.SPAN: "span",
 }
 
 SIGNAL_MODEL_MAP = {
     SignalType.EVENT: MCPEvent,
     SignalType.LOG: LogEvent,
     SignalType.METRIC: MetricEvent,
+    SignalType.SPAN: SpanEvent
 }
 
 class SQLiteExporter(BaseDatabaseExporter):
 
-    SUPPORTED_SIGNALS = {SignalType.EVENT, SignalType.LOG, SignalType.METRIC}
+    SUPPORTED_SIGNALS = {SignalType.EVENT, SignalType.LOG, SignalType.METRIC, SignalType.SPAN}
 
     def __init__(self, dsn: str = settings.sqlite_uri, table_name: str = "events"):
         super().__init__(dsn=dsn)

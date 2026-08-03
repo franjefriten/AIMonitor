@@ -18,7 +18,7 @@ class BaseExporter(ABC):
     """
     Base class for all exporters. This class defines the interface that all exporters must implement.
     """
-    SUPPORTED_SIGNALS: set[SignalType] = {SignalType.EVENT, SignalType.METRIC, SignalType.LOG}
+    SUPPORTED_SIGNALS: set[SignalType] = {SignalType.EVENT, SignalType.METRIC, SignalType.LOG, SignalType.SPAN}
 
     @abstractmethod
     async def export(self, event: BaseSignal) -> None:

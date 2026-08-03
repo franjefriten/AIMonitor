@@ -26,7 +26,7 @@ class AsyncWritable(Protocol):
 
 class FileExporter(BaseExporter):
 
-    SUPPORTED_SIGNALS = {SignalType.EVENT, SignalType.LOG, SignalType.METRIC}
+    SUPPORTED_SIGNALS = {SignalType.EVENT, SignalType.LOG, SignalType.METRIC, SignalType.SPAN}
 
     def __init__(
             self, base_uri: str | Path = settings.file_exporter_logs, 
