@@ -17,6 +17,11 @@ settings = get_settings()
 class ObservabilityAPI:
     """Public entry point for emitting structured observability signals."""
 
+    def __new__(cls):
+        if not hasattr(cls, "instance"):
+            cls.instance = super(ObservabilityAPI, cls).__new__(cls)
+        return cls.instance
+
     async def emit_event(self, event: BaseSignal) -> None:
         """
         Default method to emit a custom event created by the user. Needs to inherit from BaseSignal and have a SignalType defined.
