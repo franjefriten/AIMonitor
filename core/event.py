@@ -40,6 +40,7 @@ class SignalType(str, Enum):
     EVENT = "event"
     LOG = "log"
     METRIC = "metric"
+    SPAN = "span"
 
 
 class BaseSignal(BaseModel):
@@ -101,3 +102,17 @@ class MetricEvent(BaseSignal):
     value: float | int
     metric_type: MetricType = MetricType.GAUGE
     labels: Dict[str, str] = Field(default_factory=dict)
+
+
+class SpanEvent(BaseSignal):
+    """
+    This event is used to mark inner call tools for better atomic tracing.
+    Used as a context manager to wrap inner calls and mark them as spans.
+    """
+    event_type: SignalType = Field(default=SignalType.SPAN, description="The kind of signal being emitted.")
+    parent_id: str = Field(default="", description="The ID of the parent span, if any. Used for nested span events.")
+    trace_id: str = Field(default_factory=lambda: str(uuid4()), description="The ID of the trace that this span belongs to, base parent of a tool call trace. Used for distributed tracing.")
+    span_id: str = Field(default="", description="The ID of the span. Used for distributed tracing. Different from inherited id of the BaseSignal, which is unique for each signal. This is used to identify the individual span in a distributed tracing system by context manager.")
+    operation_name: str = Field(default="", description="Name of the operation being traced.")
+    status: Status = Field(default=Status.SUCCESS, description="The status of the span.")
+    delta: float = Field(default=0.0, description="The execution time of the span.")

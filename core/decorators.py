@@ -3,11 +3,12 @@ import time
 import inspect
 from datetime import datetime, UTC
 from typing import Callable, Literal, Any, Dict, List
+from uuid import uuid4
 from core.observability import monitor
 from utils.logger import logger
 from utils.security import redact_sensitive_data
 from configs.config import get_settings
-
+from utils.context import _span_context
 
 settings = get_settings()
 
@@ -60,6 +61,14 @@ def monitor_tool(
             status = "success"
             error_message = ""
             result = None
+            current = _span_context.get({})
+            trace_id = current.get("trace_id", str(uuid4()))
+            span_id = f"{func.__name__}_{uuid4()}" # Unique identifier for tool call
+            token = _span_context.set({
+                "parent_id": current.get("span_id"),
+                "trace_id": trace_id,
+                "span_id": span_id
+            })
 
             # Redactamos argumentos tanto posicionales como nombrados
             safe_args = redact_sensitive_data(kwargs)
@@ -79,6 +88,7 @@ def monitor_tool(
             finally:
                 end_time = time.perf_counter()
                 delta = end_time - start_time
+                _span_context.reset(token)
                 try:
                     if settings.enabled and settings.track_events:
                         logger.info(f"Emiting tool execution event for {func.__name__}")
@@ -178,6 +188,14 @@ def track_tool_call_event(func: Callable) -> Callable:
         status = "success"
         error_message = ""
         result = None
+        current = _span_context.get({})
+        trace_id = current.get("trace_id", str(uuid4()))
+        span_id = f"{func.__name__}_{uuid4()}" # Unique identifier for tool call
+        token = _span_context.set({
+            "parent_id": current.get("span_id"),
+            "trace_id": trace_id,
+            "span_id": span_id
+        })
 
         # Redactamos argumentos tanto posicionales como nombrados
         safe_args = redact_sensitive_data(kwargs)
@@ -197,6 +215,7 @@ def track_tool_call_event(func: Callable) -> Callable:
         finally:
             end_time = time.perf_counter()
             delta = end_time - start_time
+            _span_context.reset(token)
             try:
                 if settings.enabled and settings.track_events:
                     await monitor.emit_tool_execution_event(
@@ -224,7 +243,7 @@ def track_tool_metrics(
     
     Example
     ```python
-    @monitor_tool(track_duration: bool = True, track_call_count = True)
+    @track_tool_metrics(track_duration=True, track_call_count=True)
     @mcp.tool
     def some_mcp_tool
         ...
@@ -254,6 +273,14 @@ def track_tool_metrics(
             status = "success"
             error_message = ""
             result = None
+            current = _span_context.get({})
+            trace_id = current.get("trace_id", str(uuid4()))
+            span_id = f"{func.__name__}_{uuid4()}" # Unique identifier for tool call
+            token = _span_context.set({
+                "parent_id": current.get("span_id"),
+                "trace_id": trace_id,
+                "span_id": span_id
+            })
 
             # Redactamos argumentos tanto posicionales como nombrados
             safe_args = redact_sensitive_data(kwargs)
@@ -271,6 +298,7 @@ def track_tool_metrics(
                 raise
 
             finally:
+                _span_context.reset(token)
                 end_time = time.perf_counter()
                 delta = end_time - start_time
                 try:
