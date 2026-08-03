@@ -1,7 +1,7 @@
 from typing import List
 from exporters.base import BaseExporter
 from exporters.console import ConsoleExporter
-from core.event import MCPEvent
+from core.event import BaseSignal
 import httpx
 import asyncio
 import time
@@ -46,7 +46,7 @@ class ExporterRegistry:
     def register(self, exporter: BaseExporter):
         self._exporters.append(exporter)
 
-    async def dispatch(self, events: List[MCPEvent] | MCPEvent):
+    async def dispatch(self, events: List[BaseSignal] | BaseSignal):
         if not self._ensure_queue_exists():
             logger.error("Queue does not exist, aborting the dispatch!")
             return
@@ -59,6 +59,9 @@ class ExporterRegistry:
                 self._queue.put_nowait(e)
         else:
             self._queue.put_nowait(events)
+    
+    def sync_dispatch(self, events: List[BaseSignal] | BaseSignal):
+        asyncio.run(self.dispatch(events=events))
 
     def start_workers(self):
         if not self._ensure_queue_exists():
@@ -70,7 +73,7 @@ class ExporterRegistry:
 
     async def _process_queue(self):
         last_flush = time.time()
-        batch: List[MCPEvent] = []
+        batch: List[BaseSignal] = []
 
         while True:
             try:

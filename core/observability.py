@@ -118,7 +118,7 @@ class ObservabilityAPI:
 
     @asynccontextmanager
     async def span(self, operation_name: str, metadata: Optional[dict] = None):
-        """Context manager for creating a span event."""
+        """Asynchronous context manager for creating a span event."""
         if not settings.track_events:
             logger.error(
                 """Spans are not being tracked by aimonitor due to environment configuration. 
@@ -164,6 +164,57 @@ class ObservabilityAPI:
             span_event.status = Status.SUCCESS
 
             await registry.dispatch(events=[span_event])
+            logger.info(f"Span event with id '{span_event.id}' dispatched")
+            _span_context.reset(token)
+
+    @asynccontextmanager
+    def span(self, operation_name: str, metadata: Optional[dict] = None):
+        """Synchronous context manager for creating a span event."""
+        if not settings.track_events:
+            logger.error(
+                """Spans are not being tracked by aimonitor due to environment configuration. 
+                Check env vars or .yaml/.json config file"""
+            )
+            yield
+            return
+        
+        current = _span_context.get()
+        parent_id = current.get("span_id") if current.get("span_id") else None # parent id is the span id of the current context, if it exists
+        trace_id = current.get("trace_id") if current.get("trace_id") else str(uuid4())
+        span_id = f"{operation_name}_{uuid4()}"  # Unique identifier for the child span
+
+        span_event = SpanEvent(
+            event_type=SignalType.SPAN,
+            operation_name=operation_name,
+            parent_id=parent_id,
+            trace_id=trace_id,
+            span_id=span_id,
+            metadata=metadata or {},
+        )
+
+        token = {
+            "parent_id": parent_id,
+            "trace_id": trace_id,
+            "span_id": span_id
+        }
+        token = _span_context.set(token)
+        start_time = datetime.now(UTC)
+        try:
+            yield span_event
+        except Exception as e:
+            logger.error(f"Exception occurred during span '{operation_name}': {e}")
+            end_time = datetime.now(UTC)
+            delta = (end_time - start_time).total_seconds()
+            span_event.delta = delta
+            span_event.status = Status.FAILURE
+            raise e
+        finally:
+            end_time = datetime.now(UTC)
+            delta = (end_time - start_time).total_seconds()
+            span_event.delta = delta
+            span_event.status = Status.SUCCESS
+
+            registry.sync_dispatch(events=[span_event])
             logger.info(f"Span event with id '{span_event.id}' dispatched")
             _span_context.reset(token)
 
