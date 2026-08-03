@@ -27,7 +27,7 @@ class SQLiteExporter(BaseDatabaseExporter):
 
     SUPPORTED_SIGNALS = {SignalType.EVENT, SignalType.LOG, SignalType.METRIC, SignalType.SPAN}
 
-    def __init__(self, dsn: str = settings.sqlite_uri, table_name: str = "events"):
+    def __init__(self, dsn: str = settings.sqlite_uri, table_name: str = "aimonitor"):
         super().__init__(dsn=dsn)
         try:
             import aiosqlite
