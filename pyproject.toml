@@ -24,7 +24,7 @@ license = "MIT"
 # Permite instalar solo lo necesario: pip install "mcp-monitor[redis]"
 redis = ["redis>=5.2.0"]
 # Para futuras integraciones de telemetría estándar
-telemetry = ["opentelemetry-api>=1.29.0", "opentelemetry-sdk>=1.29.0"]
+opentelemetry = ["opentelemetry-api>=1.29.0", "opentelemetry-sdk>=1.29.0"]
 sqlite = [
     "aiosqlite>=0.22.1",
 ]

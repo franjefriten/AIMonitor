@@ -164,6 +164,53 @@ class AIMonitorSettings(BaseSettings):
         validation_alias=AliasChoices("logs", "track_logs", "trackLogs", "track-logs")
     )
 
+    # inner telemetry
+    inner_telemetry: bool = Field(
+        default=False,
+        description="Option to track telemetry of the module itself, useful for debugging and development",
+        validation_alias=AliasChoices("inner_telemetry", "innerTelemetry", "inner-telemetry", "telemetry", "track_telemetry", "trackTelemetry", "track-telemetry", "enable-telemetry", "enableTelemetry", "enable_telemetry")
+    )
+
+    # OpenTelemetry exporter for monitored MCP events (separate from SDK internal telemetry)
+    otel_mcp_exporter_enabled: bool = Field(
+        default=False,
+        description="Enable OpenTelemetry exporter for MCP events captured by AIMonitor",
+        validation_alias=AliasChoices(
+            "otel_mcp_exporter_enabled",
+            "otel-mcp-exporter-enabled",
+            "otelMcpExporterEnabled",
+            "otel_exporter",
+            "open_telemetry_exporter",
+            "openTelemetryExporter",
+            "mcp_otel_exporter",
+            "mcp-otel-exporter",
+        ),
+    )
+    otel_mcp_service_name: str = Field(
+        default="aimonitor-mcp",
+        description="OpenTelemetry service name used by the MCP events exporter",
+        validation_alias=AliasChoices(
+            "otel_mcp_service_name",
+            "otel-mcp-service-name",
+            "otelMcpServiceName",
+            "otel_service_name",
+            "service_name",
+            "serviceName",
+        ),
+    )
+    otel_mcp_span_prefix: str = Field(
+        default="mcp.tool",
+        description="Span name prefix for monitored MCP tool events",
+        validation_alias=AliasChoices(
+            "otel_mcp_span_prefix",
+            "otel-mcp-span-prefix",
+            "otelMcpSpanPrefix",
+            "otel_span_prefix",
+            "span_prefix",
+            "spanPrefix",
+        ),
+    )
+
 
     async def load_from_yaml(self, yaml_file_path: str | Path) -> None:
         yaml_file_path = Path(yaml_file_path)
@@ -285,6 +332,49 @@ class AIMonitorSettings(BaseSettings):
         if isinstance(v, (list, tuple, set)):
             return {str(item).strip().lower() for item in v if str(item).strip()}
         raise ValueError("sensitive_keys must be a string, list, tuple, or set")
+    
+    @field_validator("inner_telemetry", mode="before")
+    @classmethod
+    def validate_inner_telemetry(cls, v: Optional[bool]) -> Optional[bool]:
+        if v is None:
+            return False
+        if isinstance(v, bool) and v is True:
+            try:
+                import opentelemetry
+            except ImportError as e:
+                raise ImportError(
+                    (
+                        f"telemetry is set to True in config.yaml or config.json or in .env vars,"
+                        f"but opentelemetry is not installed, cannot use inner telemetry."
+                        f"Please install it by running pip install .[opentelemetry] or uv sync --extra opentelemetry"
+                    )
+                ) from e        
+            else:
+                return True
+        elif isinstance(v, bool) and v is False:
+            return False
+        if isinstance(v, str):
+            normalized = v.lower()
+            if normalized in {"true", "1", "yes", "on"}:
+                try:
+                    import opentelemetry
+                except ImportError as e:
+                    raise ImportError(
+                        (
+                            f"telemetry is set to True in config.yaml or config.json or in .env vars,"
+                            f"but opentelemetry is not installed, cannot use inner telemetry."
+                            f"Please install it by running pip install .[opentelemetry] or uv sync --extra opentelemetry"
+                        )
+                    ) from e
+                else:
+                    return True
+            elif normalized in {"false", "0", "no", "off"}:
+                return False
+            raise ValueError("inner_telemetry must be a boolean value or one of: true, false, 1, 0, yes, no, on, off")
+
+        raise ValueError("inner_telemetry must be a boolean or boolean-like string")
+
+
 
 
 @lru_cache
