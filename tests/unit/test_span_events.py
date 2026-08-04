@@ -28,7 +28,7 @@ async def test_emit_span_event():
     async def sample_function():
         await asyncio.sleep(0.1)
 
-        async with monitor.span("nested_span") as span:
+        async with monitor.aspan("nested_span") as span:
             _some_nested_function()
     
     await sample_function()
@@ -68,9 +68,9 @@ async def test_emit_multi_span_event():
     async def sample_function():
         await asyncio.sleep(0.1)
 
-        async with monitor.span("nested_span") as span:
+        async with monitor.aspan("nested_span") as span:
             _some_nested_function()
-            async with monitor.span("another_nested_span") as another_span:
+            async with monitor.aspan("another_nested_span") as another_span:
                 _some_nested_function()
     
     await sample_function()
@@ -104,13 +104,13 @@ async def test_emit_span_from_many_decorators():
     @monitor_tool(track_duration=True, track_call_count=True)
     async def sample_function():
         await asyncio.sleep(0.1)
-        async with monitor.span("nested_span") as span:
+        async with monitor.aspan("nested_span") as span:
             pass
 
     @track_tool_call_event
     async def sample_function_with_call_event():
         await asyncio.sleep(0.1)
-        async with monitor.span("nested_span") as span:
+        async with monitor.aspan("nested_span") as span:
             pass
 
     await sample_function()

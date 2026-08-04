@@ -4,7 +4,9 @@ from enum import Enum
 from typing import Any, Dict
 from uuid import uuid4
 import socket
+from configs.config import get_settings
 
+settings = get_settings()
 
 class Status(str, Enum):
     """
@@ -49,7 +51,7 @@ class BaseSignal(BaseModel):
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC), description="The timestamp of when the signal was generated.")
     event_type: SignalType
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata associated with the signal.")
-    environment: str = Field(default="", description="The environment in which the signal was generated, e.g., 'production', 'staging', etc.")
+    environment: str = Field(default=settings.env_code, description="The environment in which the signal was generated, e.g., 'production', 'staging', etc.")
     hostname: str = Field(default_factory=lambda: socket.gethostname(), description="The hostname of the machine where the signal was generated.")
     version: str = Field(default="", description="The version of the application or service generating the signal.")
 
@@ -115,7 +117,7 @@ class SpanEvent(BaseSignal):
     Used as a context manager to wrap inner calls and mark them as spans.
     """
     event_type: SignalType = Field(default=SignalType.SPAN, description="The kind of signal being emitted.")
-    parent_id: str = Field(default="", description="The ID of the parent span, if any. Used for nested span events.")
+    parent_id: str | None = Field(default=None, description="The ID of the parent span, if any. Used for nested span events. None if first event")
     trace_id: str = Field(default_factory=lambda: str(uuid4()), description="The ID of the trace that this span belongs to, base parent of a tool call trace. Used for distributed tracing.")
     span_id: str = Field(default="", description="The ID of the span. Used for distributed tracing. Different from inherited id of the BaseSignal, which is unique for each signal. This is used to identify the individual span in a distributed tracing system by context manager.")
     operation_name: str = Field(default="", description="Name of the operation being traced.")

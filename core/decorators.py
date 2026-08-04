@@ -102,7 +102,6 @@ def monitor_tool(
                             status=status,
                             error=error_message,
                             delta=delta,
-                            environment=settings.env_code,
                             version=version
                         )
                     if settings.enabled and settings.track_metrics and track_duration:
@@ -112,7 +111,6 @@ def monitor_tool(
                             value=delta,
                             metric_type="histogram",
                             labels={"tool_name": func.__name__, "status": status},
-                            environment=settings.env_code,
                             version=version
                         )
                     if settings.enabled and settings.track_metrics and track_call_count:
@@ -122,7 +120,6 @@ def monitor_tool(
                             value=1,
                             metric_type="counter",
                             labels={"tool_name": func.__name__, "status": status},
-                            environment=settings.env_code,
                             version=version
                         )
                     logger.info(f"Tool '{func.__name__}' monitored in {delta:.4f}s")
@@ -239,7 +236,7 @@ def track_tool_call_event(func: Callable) -> Callable:
                         status=status,
                         error=error_message,
                         delta=delta,
-                        environment=settings.env_code,
+                        version=""
                     )
                 logger.info(f"Tool '{func.__name__}' monitored in {delta:.4f}s")
             except Exception as registry_err:

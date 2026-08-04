@@ -1,17 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime, UTC
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 from uuid import uuid4
 
 from core.event import SpanEvent
-from utils.logger import logger
-
-from datetime import datetime, UTC
-from typing import Any, Dict
-from uuid import uuid4
-
-
+from core.event import Status
 
 class Trace:
     """
@@ -22,10 +16,10 @@ class Trace:
             func_name: Optional[str] = None, 
             metadata: Optional[Dict[str, Any]] = None
         ):
-        self.trace_id = f"{func_name}_{uuid4()}"
+        self.trace_id = f"{func_name}_{uuid4()}" if func_name else str(uuid4())
         self.spans: dict[str, SpanEvent] = {}
-        self.active_span_id: str | None = None
-        self.root_span_id: str = None
+        self.root_span_id: str | None = f"{func_name}_{uuid4()}" if func_name else None
+        self.active_span_id: str | None = self.root_span_id
         self.metadata = metadata or {}
 
     def start_span(self, operation_name: str, metadata: Optional[Dict[str, Any]] = None) -> SpanEvent:
@@ -33,7 +27,7 @@ class Trace:
         Starts the first span event of the trace, and returns the SpanEvent object. 
         This is used to mark the beginning of a tool execution, and will be used to group all subsequent span events within the same trace.
         """
-        span_id = str(uuid4())
+        span_id = f"{operation_name}_{uuid4()}"
         parent_id = self.active_span_id
         self.active_span_id = span_id
         metadata = metadata or {}
@@ -44,7 +38,9 @@ class Trace:
             root_span_id=self.root_span_id,
             operation_name=operation_name,
             metadata=metadata or {},
-            timestamp=datetime.now(UTC)
+            timestamp=datetime.now(UTC),
+            error="",
+            status=Status.SUCCESS,
         )
         self.spans[span_id] = span
         if self.root_span_id is None:

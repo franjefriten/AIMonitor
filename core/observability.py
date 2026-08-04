@@ -47,6 +47,7 @@ class ObservabilityAPI:
         delta: float = 0.0,
         timestamp: datetime | None = None,
         metadata: dict | None = None,
+        version: str = "",
     ) -> BaseSignal:
         if not settings.track_events:
             logger.error(
@@ -64,6 +65,7 @@ class ObservabilityAPI:
             timestamp=timestamp or datetime.now(UTC),
             metadata=metadata or {},
             event_type=SignalType.EVENT,
+            version=version
         )
         self.register_error(event, error) if error and status == Status.ERROR else None
         await registry.dispatch(events=[event])
@@ -75,7 +77,8 @@ class ObservabilityAPI:
         message: str,
         metadata: Optional[dict[Any, str]] = {},
         level: str | LogStatus = LogStatus.INFO,
-        source: str = ""
+        source: str = "",
+        version: str = "",
     ) -> BaseSignal:
         if not settings.track_logs:
             logger.error(
@@ -87,7 +90,8 @@ class ObservabilityAPI:
             message = message,
             metadata = metadata,
             level = level,
-            source = source
+            source = source,
+            version = version
         )
         await registry.dispatch(events=[event])
         logger.info(f"Log event with id: '{event.id}' dispatched")
@@ -100,6 +104,7 @@ class ObservabilityAPI:
         metric_type: MetricType = MetricType.GAUGE,
         labels: dict | None = None,
         metadata: dict | None = None,
+        version: str = "",
     ) -> BaseSignal:
         if not settings.track_metrics:
             logger.error(
@@ -113,8 +118,9 @@ class ObservabilityAPI:
             metric_type=metric_type,
             labels=labels or {},
             metadata=metadata or {},
+            version=version
         )
-        self.register_error(event) if event.labels["status"] == Status.ERROR else None
+        self.register_error(event) if event.labels.get("status", "") == Status.ERROR else None
         await registry.dispatch(events=[event])
         logger.info(f"Metric event with id '{event.id}' dispatched")
         return event
