@@ -9,22 +9,14 @@ from utils.logger import logger
 from tenacity import retry
 
 class ExporterRegistry:
-    _instance = None
-
-    def __init__(self, batch_size: int = 10, flush_delta: float = 1.0, num_workers: int = 5, register_console: bool = False):
+    def __init__(self, batch_size: int = 10, flush_delta: float = 1.0, num_workers: int = 5):
         self._exporters: List[BaseExporter] = []
         self._num_workers = num_workers
         self._workers: List[asyncio.Task] = []
-        self._queue: asyncio.Queue | None = None
+        self._queue = asyncio.Queue()
         self.batch_size = batch_size
         self.flush_delta = flush_delta
         self._loop = None
-        self._register_console = register_console
-
-    def __new__(cls, *args, **kwargs):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
 
     def _ensure_queue_exists(self):
         try:
@@ -38,8 +30,6 @@ class ExporterRegistry:
 
         if self._queue is None:
             self._queue = asyncio.Queue()
-            if self._register_console and not self._exporters:
-                self.register(ConsoleExporter())
 
         return True
 
@@ -69,11 +59,13 @@ class ExporterRegistry:
     async def _process_queue(self):
         last_flush = time.time()
         batch: List[MCPEvent] = []
+        batch_items = 0
 
         while True:
             try:
                 event = await asyncio.wait_for(self._queue.get(), timeout=0.1)
                 batch.append(event)
+                batch_items += 1
             except asyncio.TimeoutError:
                 event = None
 
@@ -94,12 +86,13 @@ class ExporterRegistry:
                     logger.error("Error found while sending batch of events")
                 finally:
                     logger.info("Finished processing event batch")
-                    for _ in batch:
+                    for _ in range(batch_items):
                         self._queue.task_done()
                     last_flush = now
                     batch = []
+                    batch_items = 0
 
-    async def _send_batch(self, batch):
+    async def _send_batch(self, batch: List[MCPEvent]):
         failed_exporters = []
         for i, exporter in enumerate(self._exporters):
             try:

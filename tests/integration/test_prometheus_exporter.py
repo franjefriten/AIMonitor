@@ -89,7 +89,7 @@ async def test_prometheus_exporter_integration_with_registry_and_tool():
     exporter.histogram._registry = None
     registry.register(exporter)
 
-    #decorators_module.registry = registry
+    decorators_module.registry = registry
 
     @monitor_tool
     async def sample_tool(value: str) -> dict[str, Any]:
