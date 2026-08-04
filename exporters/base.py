@@ -3,7 +3,7 @@ Exporters are responsible for taking the data from the database and converting i
 This module provides a base class for all exporters, which can be extended to create custom exporters for different formats.
 """
 from abc import ABC, abstractmethod
-from core.event import MCPEvent
+from core.event import BaseSignal, SignalType
 from typing import Callable, List, Optional
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 import httpx
@@ -18,9 +18,10 @@ class BaseExporter(ABC):
     """
     Base class for all exporters. This class defines the interface that all exporters must implement.
     """
+    SUPPORTED_SIGNALS: set[SignalType] = {SignalType.EVENT, SignalType.METRIC, SignalType.LOG, SignalType.SPAN}
 
     @abstractmethod
-    async def export(self, event: MCPEvent) -> None:
+    async def export(self, event: BaseSignal) -> None:
         """
         Export the given event to the desired format.
 
@@ -28,7 +29,7 @@ class BaseExporter(ABC):
         """
         pass
 
-    async def export_batch(self, event_batch: List[MCPEvent]) -> None:
+    async def export_batch(self, event_batch: List[BaseSignal]) -> None:
         """
         Export the given batch of events to the desired format.
 
@@ -67,14 +68,14 @@ class HTTPBaseExporter(BaseExporter):
             self.client.aclose()
             self.client = None
 
-    async def export(self, event: MCPEvent):
+    async def export(self, event: BaseSignal) -> None:
         """
         Abstract method of exportation
         """
         await self.export_batch(event_batch=[event])
 
     @abstractmethod
-    async def export_batch(self, event_batch: List[MCPEvent]):
+    async def export_batch(self, event_batch: List[BaseSignal]):
         """
         Export in batches
         """
