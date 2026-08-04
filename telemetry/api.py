@@ -1,19 +1,8 @@
-try:
-    import opentelemetry as optl
-    import opentelemetry.sdk as optl_sdk
-except ImportError as e:
-    raise ImportError(
-        "opentelemetry is required for OpenTelemetryExporter. Install it with pip install .[opentelemetry]"
-    ) from e
-
-
 import sys
-import logging
+import os
 from typing import Optional, Dict, Any
 from utils.logger import logger
 from configs.config import get_settings
-
-settings = get_settings()
 
 class InternalTelemetryManager:
     """
@@ -22,36 +11,57 @@ class InternalTelemetryManager:
     - If not installed, acts in No-Op mode (zero cost, no errors).
     - Protects the client's application against any internal observability failures.
     """
-    def __init__(self, enabled: bool = settings.inner_telemetry, service_name: str = "tu-sdk-observabilidad"):
-
-        if getattr(self, "_initialized", False):
-            return  # Avoid re-initialization
-
-        self.enabled = enabled
+    def __init__(
+        self,
+        enabled: Optional[bool] = None,
+        service_name: str = "aimonitor-sdk",
+    ):
+        settings = get_settings()
+        self.enabled = settings.inner_telemetry if enabled is None else enabled
         self.service_name = service_name
         self.tracer = None
         self.meter = None
+        self._counters: Dict[str, Any] = {}
         
         if self.enabled:
             self._initialize_otel()
-        self._initialized = True
-    
-    def __new__(cls):
-        if not hasattr(cls, "instance"):
-            cls.instance = super(InternalTelemetryManager, cls).__new__(cls)
-            cls.instance._initialized = False
-        return cls.instance
+
+    def configure(self, enabled: Optional[bool] = None, service_name: Optional[str] = None) -> None:
+        """
+        Configures telemetry at runtime.
+        - enabled=None: read value from AIMonitor settings.
+        - enabled=False: force no-op mode.
+        - enabled=True: initialize OpenTelemetry if available.
+        """
+        settings = get_settings()
+        desired_enabled = settings.inner_telemetry if enabled is None else enabled
+
+        if service_name:
+            self.service_name = service_name
+
+        self.enabled = bool(desired_enabled)
+        self.tracer = None
+        self.meter = None
+        self._counters = {}
+
+        if self.enabled:
+            self._initialize_otel()
 
     def _initialize_otel(self) -> None:
         """Checks and loads OpenTelemetry dynamically and securely."""
         try:
+            if os.getenv("OTEL_SDK_DISABLED", "false").strip().lower() == "true":
+                self.enabled = False
+                logger.debug("OTEL_SDK_DISABLED=true detected. Internal telemetry disabled (No-Op).")
+                return
+
             from opentelemetry import trace, metrics
             
             # Get the OpenTelemetry providers configured in the client app
             self.tracer = trace.get_tracer(self.service_name)
             self.meter = metrics.get_meter(self.service_name)
             
-            logger.debug("OpenTelemetry detected and successfully initialized in the SDK.")
+            logger.debug("OpenTelemetry detected and initialized in the SDK.")
 
         except ImportError:
             # OpenTelemetry is not installed in the user's environment -> Total skip
@@ -74,13 +84,16 @@ class InternalTelemetryManager:
             with self.tracer.start_as_current_span(event_name) as span:
                 if attributes:
                     for key, value in attributes.items():
-                        # OTel expects primitive types (str, int, float, bool)
-                        span.set_attribute(str(key), value)
+                        # Keep attribute payloads safe and compatible with OTel primitive types.
+                        if isinstance(value, (str, int, float, bool)) or value is None:
+                            span.set_attribute(str(key), value)
+                        else:
+                            span.set_attribute(str(key), str(value))
         except Exception as internal_error:
             # Absolute safety net: an internal telemetry failure never breaks the user's software
             sys.stderr.write(f"[SDK Telemetry Error] Failed to record event '{event_name}': {internal_error}\n")
 
-    def track_metric_counter(self, metric_name: str, value: int = 1, attributes: Optional[Dict[str, str]] = None) -> None:
+    def track_metric_counter(self, metric_name: str, value: int = 1, attributes: Optional[Dict[str, Any]] = None) -> None:
         """
         Example for recording internal metrics (counters) optionally.
         """
@@ -88,11 +101,27 @@ class InternalTelemetryManager:
             return
 
         try:
-            # Creates or reuses a basic OTel counter
-            counter = self.meter.create_counter(metric_name)
+            # Cache counters to avoid re-creating instrument handles on hot paths.
+            counter = self._counters.get(metric_name)
+            if counter is None:
+                counter = self.meter.create_counter(metric_name)
+                self._counters[metric_name] = counter
             counter.add(value, attributes or {})
         except Exception as internal_error:
             sys.stderr.write(f"[SDK Telemetry Error] Failed to record metric '{metric_name}': {internal_error}\n")
 
 
 internal_telemetry_manager = InternalTelemetryManager()
+
+
+def configure_internal_telemetry(enabled: Optional[bool] = None, service_name: Optional[str] = None) -> InternalTelemetryManager:
+    """
+    Public helper to configure SDK internal telemetry from user modules.
+
+    Examples:
+      - configure_internal_telemetry(enabled=False)
+      - configure_internal_telemetry(enabled=True, service_name="my-service")
+      - configure_internal_telemetry()  # uses AIMonitor settings
+    """
+    internal_telemetry_manager.configure(enabled=enabled, service_name=service_name)
+    return internal_telemetry_manager
