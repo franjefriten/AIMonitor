@@ -5,11 +5,12 @@ from typing import Any, Optional
 from uuid import uuid4
 
 from core.event import MCPEvent, SignalType, LogEvent, MetricEvent, Status, LogStatus, BaseSignal, MetricType, SpanEvent
+from core.trace import Trace
 from core.registry import registry
 from utils.logger import logger
 from configs.config import get_settings
 from contextlib import asynccontextmanager, contextmanager
-from utils.context import _span_context
+from utils.context import _trace_context
 
 settings = get_settings()
 
@@ -127,45 +128,29 @@ class ObservabilityAPI:
             yield
             return
         
-        current = _span_context.get()
-        parent_id = current.get("span_id") if current.get("span_id") else None # parent id is the span id of the current context, if it exists
-        trace_id = current.get("trace_id") if current.get("trace_id") else str(uuid4())
-        span_id = f"{operation_name}_{uuid4()}"  # Unique identifier for the child span
+        trace = _trace_context.get()
+        root_span_event = trace.start_span(operation_name=operation_name, metadata=metadata)
 
-        span_event = SpanEvent(
-            event_type=SignalType.SPAN,
-            operation_name=operation_name,
-            parent_id=parent_id,
-            trace_id=trace_id,
-            span_id=span_id,
-            metadata=metadata or {},
-        )
-
-        token = {
-            "parent_id": parent_id,
-            "trace_id": trace_id,
-            "span_id": span_id
-        }
-        token = _span_context.set(token)
+        token = _trace_context.set(trace)
         start_time = datetime.now(UTC)
         try:
-            yield span_event
+            yield root_span_event
         except Exception as e:
             logger.error(f"Exception occurred during span '{operation_name}': {e}")
             end_time = datetime.now(UTC)
             delta = (end_time - start_time).total_seconds()
-            span_event.delta = delta
-            span_event.status = Status.FAILURE
+            root_span_event.delta = delta
+            root_span_event.status = Status.FAILURE
             raise e
         finally:
             end_time = datetime.now(UTC)
             delta = (end_time - start_time).total_seconds()
-            span_event.delta = delta
-            span_event.status = Status.SUCCESS
+            root_span_event.delta = delta
+            root_span_event.status = Status.SUCCESS
 
-            await registry.dispatch(events=[span_event])
-            logger.info(f"Span event with id '{span_event.id}' dispatched")
-            _span_context.reset(token)
+            await registry.dispatch(events=[root_span_event])
+            logger.info(f"Span event with id '{root_span_event.id}' dispatched")
+            _trace_context.reset(token)
 
     @contextmanager
     def span(self, operation_name: str, metadata: Optional[dict] = None):
@@ -178,45 +163,29 @@ class ObservabilityAPI:
             yield
             return
         
-        current = _span_context.get()
-        parent_id = current.get("span_id") if current.get("span_id") else None # parent id is the span id of the current context, if it exists
-        trace_id = current.get("trace_id") if current.get("trace_id") else str(uuid4())
-        span_id = f"{operation_name}_{uuid4()}"  # Unique identifier for the child span
+        trace = _trace_context.get()
+        root_span_event = trace.start_span(operation_name=operation_name, metadata=metadata)
 
-        span_event = SpanEvent(
-            event_type=SignalType.SPAN,
-            operation_name=operation_name,
-            parent_id=parent_id,
-            trace_id=trace_id,
-            span_id=span_id,
-            metadata=metadata or {},
-        )
-
-        token = {
-            "parent_id": parent_id,
-            "trace_id": trace_id,
-            "span_id": span_id
-        }
-        token = _span_context.set(token)
+        token = _trace_context.set(trace)
         start_time = datetime.now(UTC)
         try:
-            yield span_event
+            yield root_span_event
         except Exception as e:
             logger.error(f"Exception occurred during span '{operation_name}': {e}")
             end_time = datetime.now(UTC)
             delta = (end_time - start_time).total_seconds()
-            span_event.delta = delta
-            span_event.status = Status.FAILURE
+            root_span_event.delta = delta
+            root_span_event.status = Status.FAILURE
             raise e
         finally:
             end_time = datetime.now(UTC)
             delta = (end_time - start_time).total_seconds()
-            span_event.delta = delta
-            span_event.status = Status.SUCCESS
+            root_span_event.delta = delta
+            root_span_event.status = Status.SUCCESS
 
-            registry.sync_dispatch(events=[span_event])
-            logger.info(f"Span event with id '{span_event.id}' dispatched")
-            _span_context.reset(token)
+            registry.sync_dispatch(events=[root_span_event])
+            logger.info(f"Span event with id '{root_span_event.id}' dispatched")
+            _trace_context.reset(token)
 
 
 monitor = ObservabilityAPI()

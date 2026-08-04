@@ -1,3 +1,4 @@
 from contextvars import ContextVar
+from core.trace import Trace
 
-_span_context: ContextVar[dict] = ContextVar("span_context", default={})
+_trace_context: ContextVar[Trace] = ContextVar("span_context", default=Trace())
