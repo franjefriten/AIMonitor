@@ -9,21 +9,13 @@ from utils.logger import logger
 from tenacity import retry
 
 class ExporterRegistry:
-    _instance = None
-
     def __init__(self, batch_size: int = 10, flush_delta: float = 1.0, num_workers: int = 5):
         self._exporters: List[BaseExporter] = []
         self._num_workers = num_workers
         self._workers: List[asyncio.Task] = []
         self._queue = asyncio.Queue()
-        self.batch: List[MCPEvent] = []
         self.batch_size = batch_size
         self.flush_delta = flush_delta
-
-    def __new__(cls, *args, **kwargs):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
 
     def register(self, exporter: BaseExporter):
         self._exporters.append(exporter)
@@ -46,40 +38,45 @@ class ExporterRegistry:
 
     async def _process_queue(self):
         last_flush = time.time()
+        batch: List[MCPEvent] = []
+        batch_items = 0
 
         while True:
             try:
                 event = await asyncio.wait_for(self._queue.get(), timeout=0.1)
-                self.batch.append(event)
+                batch.append(event)
+                batch_items += 1
             except asyncio.TimeoutError:
                 event = None
 
             now = time.time()
-            if event is None and not self.batch:
+            if event is None and not batch:
                 continue
 
             should_flush = (
-                len(self.batch) >= self.batch_size
-                or (event is None and self.batch and (now - last_flush) >= self.flush_delta)
-                or (event is None and self.batch and self._queue.empty())
+                len(batch) >= self.batch_size
+                or (event is None and batch and (now - last_flush) >= self.flush_delta)
+                or (event is None and batch and self._queue.empty())
             )
 
             if should_flush:
                 try:
-                    await self._send_batch()
+                    await self._send_batch(batch)
                 except Exception:
                     logger.error("Error found while sending batch of events")
                 finally:
                     logger.info("Finished processing event batch")
-                    self._queue.task_done()
+                    for _ in range(batch_items):
+                        self._queue.task_done()
                     last_flush = now
-                    self.batch = []
+                    batch = []
+                    batch_items = 0
 
-    async def _send_batch(self):
+    async def _send_batch(self, batch: List[MCPEvent]):
         failed_exporters = []
         for i, exporter in enumerate(self._exporters):
             try:
-                await exporter.export_batch(self.batch)
+                await exporter.export_batch(batch)
             except:
                 exporter_name = exporter.__class__.__name__
                 logger.error(f"Exporter {exporter_name} failed to exporter event batch, popping it from list")
