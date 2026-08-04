@@ -28,8 +28,8 @@ async def test_exporter_on_successful_events_batches():
     registry.start_workers()
     registry.register(exporter=SuccessfulExporter())
     registry.register(exporter=SuccessfulExporter()) # 2
-    registry.dispatch(events=events)
-    await asyncio.sleep(3)  
+    await registry.dispatch(events=events)
+    await asyncio.sleep(5) # wait for events to be processed
 
     assert registry._queue.empty() == True
     assert len(registry._exporters) == 2
@@ -58,7 +58,7 @@ async def test_exporter_auto_removal_on_failure():
     registry = ExporterRegistry(batch_size=3, flush_delta=0.1, num_workers=1)
     registry.start_workers()
     registry.register(exporter=FailingExporter())
-    registry.dispatch(events=events)
+    await registry.dispatch(events=events)
     await registry.shutdown()
     await asyncio.sleep(3)
 

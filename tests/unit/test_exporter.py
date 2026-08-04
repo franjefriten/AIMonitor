@@ -6,7 +6,7 @@ import random
 from exporters.file import FileExporter 
 from exporters.sqlite import SQLiteExporter
 from core.event import MCPEvent 
-from tests.conftest import _generate_mcp_event
+from tests.conftest import _generate_mcp_event, _generate_span_event
 
 ## FileExporter
 
@@ -68,6 +68,10 @@ async def test_file_exporter_rotation(tmp_path):
 
 @pytest.mark.asyncio
 async def test_writes_to_sqlite():
+    try:
+        import aiosqlite
+    except ImportError:
+        pytest.skip("aiosqlite is not installed, skipping SQLiteExporter test.")
     sqlite_exporter = SQLiteExporter(dsn=":memory:", table_name="events")
     batches = 20
     batch_length = 50
@@ -77,10 +81,66 @@ async def test_writes_to_sqlite():
             batch = [_generate_mcp_event() for _ in range(batch_length)]
             await sqlite_exporter.export_batch(event_batch=batch)
         
-        async with sqlite_exporter.client.execute("SELECT COUNT(*) FROM events;") as cursor:
+        async with sqlite_exporter.client.execute("SELECT COUNT(*) FROM events_event;") as cursor:
             row = await cursor.fetchone()
             assert row[0] == batch_length * batches
     finally:
         await sqlite_exporter.close()
+
+
+@pytest.mark.asyncio
+async def test_span_events_wrote_to_sqlite():
+    try:
+        import aiosqlite
+    except ImportError:
+        pytest.skip("aiosqlite is not installed, skipping SQLiteExporter test.")
     
+    sqlite_exporter = SQLiteExporter(dsn=":memory:", table_name="aimonitor")
+    await sqlite_exporter.connect()
+    try:
+        batch = [
+            _generate_span_event(
+                parent_id="root_parent",
+                trace_id="tool_call_trace",
+                span_id="tool_1_call",
+                operation_name=f"tool_1_call_operation_name"
+            ),
+            _generate_span_event(
+                parent_id="tool_1_call",
+                trace_id="tool_call_trace",
+                span_id="tool_2_call",
+                operation_name=f"tool_2_call_operation_name"
+            ),
+            _generate_span_event(
+                parent_id="tool_2_call",
+                trace_id="tool_call_trace",
+                span_id="tool_3_call",
+                operation_name=f"tool_3_call_operation_name"
+            )
+        ]
+        await sqlite_exporter.export_batch(event_batch=batch)
+    except Exception as e:
+        pytest.fail(f"SQLiteExporter failed to write span events: {e}")
+
+    try:
+        async with sqlite_exporter.client.execute("SELECT COUNT(*) FROM aimonitor_span;") as cursor:
+            row = await cursor.fetchone()
+            assert row[0] == 3
+        async with sqlite_exporter.client.execute(
+                "SELECT parent_id, trace_id, span_id, operation_name FROM aimonitor_span;") as cursor:
+            rows = await cursor.fetchall()
+            assert len(rows) == 3
+            for parent_id, trace_id, span_id, operation_name in rows:
+                assert parent_id in ["root_parent", "tool_1_call", "tool_2_call"]
+                assert trace_id == "tool_call_trace"
+                assert span_id in ["tool_1_call", "tool_2_call", "tool_3_call"]
+                assert operation_name in [
+                    "tool_1_call_operation_name",
+                    "tool_2_call_operation_name",
+                    "tool_3_call_operation_name"
+                ]
+    except Exception as e:
+        pytest.fail(f"Failed to query span events from SQLite: {e}")
+    finally:
+        await sqlite_exporter.close()
     
