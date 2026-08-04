@@ -27,7 +27,7 @@ class BaseExporter(ABC):
 
         :param event: The event to be exported.
         """
-        pass
+        await self.export_batch(event_batch=[event])
 
     async def export_batch(self, event_batch: List[BaseSignal]) -> None:
         """
@@ -35,8 +35,7 @@ class BaseExporter(ABC):
 
         :param event_batch: The batch of events to be exported 
         """
-        for event in event_batch:
-            await self.export(event)
+        pass
 
 
 class HTTPBaseExporter(BaseExporter):

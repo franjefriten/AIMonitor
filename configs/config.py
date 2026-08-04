@@ -3,11 +3,12 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal, Optional
 from urllib import parse
+import socket
 
 import aiofiles
 import json
 import yaml
-from pydantic import AnyUrl, Field, FilePath, HttpUrl, field_validator, AliasChoices
+from pydantic import AnyUrl, Field, FilePath, HttpUrl, field_validator, AliasChoices, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 import logging
@@ -80,26 +81,39 @@ class AIMonitorSettings(BaseSettings):
         description="Sensitive keys to censor in data",
         validation_alias=AliasChoices("sensitive_keys", "sensitive-keys", "sensitiveKeys")
     )
+    # redis
     redis_url: Optional[AnyUrl] = Field(
         default="redis://localhost:6379/0",
         description="Redis URL to use",
         validation_alias=AliasChoices("redis_url", "redis-url", "redisUrl")
     )
+    # mongo
     mongodb_url: Optional[AnyUrl] = Field(
         default="mongodb://localhost:27017",
         description="MongoDB URL to use",
         validation_alias=AliasChoices("mongodb_url", "mongodb-url", "mongodbUrl")
     )
+    # postgres
     postgres_url: Optional[AnyUrl] = Field(
         default="postgresql://user:password@localhost/dbname",
         description="Postgres URL to use",
         validation_alias=AliasChoices("postgres_url", "postgres-url", "postgresUrl")
     )
+    # prometheus
     prometheus_url: Optional[HttpUrl] = Field(
         default="http://localhost:9000",
         description="Prometheus URL to use",
         validation_alias=AliasChoices("prometheus_url", "prometheus-url", "prometheusUrl")
     )
+    # kafka
+    kafka_bootstrap_servers: str = Field(default="localhost:9092", description="Kafka bootstrap servers")    
+    kafka_security_protocol: str = Field(default="PLAINTEXT", description="Security protocol (PLAINTEXT, SASL_SSL, etc.)")
+    kafka_sasl_mechanism: Optional[str] = Field(default=None, description="SASL mechanism (e.g. PLAIN, SCRAM-SHA-256)")
+    kafka_sasl_username: Optional[SecretStr] = Field(default=None, description="Cluster API Key / Username")
+    kafka_sasl_password: Optional[SecretStr] = Field(default=None, description="Cluster API Secret / Password")
+    kafka_group_id: str = Field(default="aimonitor-group", description="Consumer group id")
+    kafka_auto_offset_reset: str = Field(default="earliest", description="Auto offset reset")
+    # sqlite
     sqlite_uri: Optional[Path] = Field(
         default=Path("./sqlite_aimonitor.sqlite"),
         description="SQLite path to use",
@@ -234,6 +248,28 @@ class AIMonitorSettings(BaseSettings):
                 setattr(self, field, value)
 
         config_logger.info("JSON config file was loaded into AIMonitor settings")
+    
+    def get_kafka_config(self) -> dict:
+        """Genera el diccionario de configuración exacto que requiere confluent-kafka."""
+        conf = {
+            'bootstrap.servers': self.kafka_bootstrap_servers,
+            'security.protocol': self.kafka_security_protocol,
+            'client.id': socket.gethostname(),
+            'auto.offset.reset': self.kafka_auto_offset_reset,
+        }
+        
+        # Añadir autenticación SASL solo si está configurada
+        if self.kafka_sasl_mechanism:
+            conf['sasl.mechanism'] = self.kafka_sasl_mechanism
+        
+        if self.kafka_sasl_username:
+            conf['sasl.username'] = self.kafka_sasl_username
+            
+        if self.kafka_sasl_password:
+            # Desencriptamos el SecretStr solo en el momento de dárselo a Kafka
+            conf['sasl.password'] = self.kafka_sasl_password.get_secret_value()
+            
+        return conf
 
     @field_validator("redis_url", "mongodb_url", "postgres_url", mode="before")
     @classmethod
