@@ -4,20 +4,13 @@ from datetime import datetime, UTC
 from typing import Any, Optional
 from uuid import uuid4
 
-from core.event import MCPEvent, SignalType, LogEvent, MetricEvent, Status, LogStatus, BaseSignal, MetricType, SpanEvent
-from core.registry import registry
+from core.event import SpanEvent
 from utils.logger import logger
-from configs.config import get_settings
-from utils.context import _span_context
-from pydantic import Field
 
-from pydantic import BaseModel, Field
 from datetime import datetime, UTC
-from enum import Enum
 from typing import Any, Dict
 from uuid import uuid4
-import socket
-from contextvars import ContextVar
+
 
 
 class Trace:
