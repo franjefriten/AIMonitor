@@ -120,4 +120,13 @@ class SpanEvent(BaseSignal):
     span_id: str = Field(default="", description="The ID of the span. Used for distributed tracing. Different from inherited id of the BaseSignal, which is unique for each signal. This is used to identify the individual span in a distributed tracing system by context manager.")
     operation_name: str = Field(default="", description="Name of the operation being traced.")
     status: Status = Field(default=Status.SUCCESS, description="The status of the span.")
+    error: str = Field(default="", description="Error message in a tool executed found within a span if any.")
     delta: float = Field(default=0.0, description="The execution time of the span.")
+
+    def register_error(self, msg: str) -> None:
+        """
+        When tool execution does not fail, but returns an 'error' or unwanted result, we can register it as an error in the span event.
+        This method is meant to be used inside a span context manager. Gets the current span event from the context and registers the error in it.
+        """
+        self.status = Status.ERROR
+        self.error = msg

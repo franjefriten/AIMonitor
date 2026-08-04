@@ -36,7 +36,7 @@ def monitor_tool(
         - args
         - result
         - status: ERROR, SUCCESS, WARNING, FAILURE
-        - error message if status = FAILURE
+        - error message if status = FAILURE or ERROR
         - delta: time performance
     - A metric for execution time if `track_duration = True`:
         - name: "tool_execution_duration_seconds"
@@ -80,7 +80,7 @@ def monitor_tool(
                 return result
 
             except Exception as exc:
-                status = "error"
+                status = "failure"
                 error_message = str(exc)
                 raise
 
@@ -88,6 +88,10 @@ def monitor_tool(
                 end_time = time.perf_counter()
                 delta = end_time - start_time
                 _trace_context.reset(token)
+                if isinstance(result, dict) and "error" in result:
+                    status = "error"
+                    error_message = result.get("error", "")
+
                 try:
                     if settings.enabled and settings.track_events:
                         logger.info(f"Emiting tool execution event for {func.__name__}")
@@ -181,7 +185,7 @@ def track_tool_call_event(func: Callable) -> Callable:
         - args
         - result
         - status: ERROR, SUCCESS, WARNING, FAILURE
-        - error message if status = FAILURE
+        - error message if status = FAILURE or ERROR
         - delta: time performance
 
     NOTE: tool kwargs will be censored by sensitive keys set in config .yaml/.json file plus default ones
@@ -215,7 +219,7 @@ def track_tool_call_event(func: Callable) -> Callable:
             return result
 
         except Exception as exc:
-            status = "error"
+            status = "failure"
             error_message = str(exc)
             raise
 
@@ -223,6 +227,9 @@ def track_tool_call_event(func: Callable) -> Callable:
             end_time = time.perf_counter()
             delta = end_time - start_time
             _trace_context.reset(token)
+            if isinstance(result, dict) and "error" in result:
+                status = "error"
+                error_message = result.get("error", "")
             try:
                 if settings.enabled and settings.track_events:
                     await monitor.emit_tool_execution_event(
@@ -298,7 +305,7 @@ def track_tool_metrics(
                 return result
 
             except Exception as exc:
-                status = "error"
+                status = "failure"
                 error_message = str(exc)
                 raise
 
@@ -306,6 +313,9 @@ def track_tool_metrics(
                 _trace_context.reset(token)
                 end_time = time.perf_counter()
                 delta = end_time - start_time
+                if isinstance(result, dict) and "error" in result:
+                    status = "error"
+                    error_message = result.get("error", "")
                 try:
                     if settings.enabled and settings.track_metrics and track_duration:
                         await monitor.record_metric(

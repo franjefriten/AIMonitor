@@ -36,6 +36,10 @@ class Trace:
         self.metadata = metadata or {}
 
     def start_span(self, operation_name: str, metadata: Optional[Dict[str, Any]] = None) -> SpanEvent:
+        """
+        Starts the first span event of the trace, and returns the SpanEvent object. 
+        This is used to mark the beginning of a tool execution, and will be used to group all subsequent span events within the same trace.
+        """
         span_id = str(uuid4())
         parent_id = self.active_span_id
         self.active_span_id = span_id
@@ -53,5 +57,26 @@ class Trace:
         if self.root_span_id is None:
             self.root_span_id = span_id
         return span
+
+    def end_span(self, span_id: str):
+        if self.active_span_id == span_id:
+            self.active_span_id = self.spans[span_id].parent_id
+
+    def current_span(self) -> Optional[SpanEvent]:
+        if self.active_span_id:
+            return self.spans.get(self.active_span_id)
+        return None
+    
+    def parent_span(self) -> Optional[SpanEvent]:
+        if self.active_span_id:
+            current_span = self.spans.get(self.active_span_id)
+            if current_span and current_span.parent_id:
+                return self.spans.get(current_span.parent_id)
+        return None
+    
+    def get_span(self, span_id: str) -> Optional[SpanEvent]:
+        return self.spans.get(span_id)
+    
+    
     
 
