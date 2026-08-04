@@ -1,5 +1,5 @@
 from exporters.base import BaseExporter
-from core.event import MCPEvent
+from core.event import BaseSignal
 from utils.logger import logger
 from exporters.base import with_retry
 
@@ -17,7 +17,7 @@ class RedisExporter(BaseExporter):
         self.redis = redis
 
     @with_retry()
-    def export(self, event: MCPEvent) -> None:
+    def export(self, event: BaseSignal) -> None:
         """
         Export the given event to Redis.
 

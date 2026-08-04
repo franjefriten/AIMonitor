@@ -1,5 +1,5 @@
 from exporters.base import BaseExporter, HTTPBaseExporter
-from core.event import MCPEvent
+from core.event import BaseSignal, SignalType
 from utils.logger import logger
 import httpx
 import asyncio
@@ -25,6 +25,9 @@ class AsyncWritable(Protocol):
     def closed(self) -> bool: ...
 
 class FileExporter(BaseExporter):
+
+    SUPPORTED_SIGNALS = {SignalType.EVENT, SignalType.LOG, SignalType.METRIC, SignalType.SPAN}
+
     def __init__(
             self, base_uri: str | Path = settings.file_exporter_logs, 
             mode: Literal['a', 'w', 'x'] = 'a',
@@ -75,17 +78,22 @@ class FileExporter(BaseExporter):
         if self.client and not self.client.closed:
             await self.client.close()  
         
-    async def export(self, event: MCPEvent) -> None:
+    async def export(self, event: BaseSignal) -> None:
         await self.export_batch([event])
     
-    async def export_batch(self, event_batch: List[MCPEvent]) -> None:
+    async def export_batch(self, event_batch: List[BaseSignal]) -> None:
         if not self.client:
-            raise RuntimeError("Exporter not connected")
-
-        lines = [
-            f"{datetime.now(UTC)}: {e.model_dump_json()}\n"
-            for e in event_batch
-        ]
+            logger.error(f"client for {self.__class__.__name__} not initialized")
+        lines = []
+        for event in event_batch:
+            if event.event_type not in self.SUPPORTED_SIGNALS:
+                logger.warning(
+                    "Event type '%s' with id: '%s' is not supported by FileExporter. Skipping export for event.",
+                    event.event_type,
+                    event.id
+                )
+            else:
+                lines.append(f"{datetime.now(UTC)}: {event.model_dump_json()}\n")
 
         bytes_lines = len(bytes("".join(lines).encode()))
 

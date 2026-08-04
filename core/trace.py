@@ -1,0 +1,71 @@
+from __future__ import annotations
+
+from datetime import datetime, UTC
+from typing import Any, Dict, Optional
+from uuid import uuid4
+
+from core.event import SpanEvent
+from core.event import Status
+
+class Trace:
+    """
+    Groups span events within the same object. Used mainly as internal logic
+    """
+    def __init__(
+            self, 
+            func_name: Optional[str] = None, 
+            metadata: Optional[Dict[str, Any]] = None
+        ):
+        self.trace_id = f"{func_name}_{uuid4()}" if func_name else str(uuid4())
+        self.spans: dict[str, SpanEvent] = {}
+        self.root_span_id: str | None = f"{func_name}_{uuid4()}" if func_name else None
+        self.active_span_id: str | None = self.root_span_id
+        self.metadata = metadata or {}
+
+    def start_span(self, operation_name: str, metadata: Optional[Dict[str, Any]] = None) -> SpanEvent:
+        """
+        Starts the first span event of the trace, and returns the SpanEvent object. 
+        This is used to mark the beginning of a tool execution, and will be used to group all subsequent span events within the same trace.
+        """
+        span_id = f"{operation_name}_{uuid4()}"
+        parent_id = self.active_span_id
+        self.active_span_id = span_id
+        metadata = metadata or {}
+        span = SpanEvent(
+            trace_id=self.trace_id,
+            parent_id=parent_id,
+            span_id=span_id,
+            root_span_id=self.root_span_id,
+            operation_name=operation_name,
+            metadata=metadata or {},
+            timestamp=datetime.now(UTC),
+            error="",
+            status=Status.SUCCESS,
+        )
+        self.spans[span_id] = span
+        if self.root_span_id is None:
+            self.root_span_id = span_id
+        return span
+
+    def end_span(self, span_id: str):
+        if self.active_span_id == span_id:
+            self.active_span_id = self.spans[span_id].parent_id
+
+    def current_span(self) -> Optional[SpanEvent]:
+        if self.active_span_id:
+            return self.spans.get(self.active_span_id)
+        return None
+    
+    def parent_span(self) -> Optional[SpanEvent]:
+        if self.active_span_id:
+            current_span = self.spans.get(self.active_span_id)
+            if current_span and current_span.parent_id:
+                return self.spans.get(current_span.parent_id)
+        return None
+    
+    def get_span(self, span_id: str) -> Optional[SpanEvent]:
+        return self.spans.get(span_id)
+    
+    
+    
+

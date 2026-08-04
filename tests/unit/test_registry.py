@@ -1,14 +1,10 @@
 import pytest
-import pytest_asyncio
 
 from exporters.base import BaseExporter
-from core.registry import ExporterRegistry
-from core.event import MCPEvent
+from core.registry import ExporterRegistry, registry
 from tests.conftest import _generate_mcp_event
 
-from datetime import datetime, UTC
 import asyncio
-import random
 
 @pytest.mark.asyncio
 async def test_exporter_on_successful_events_batches():
@@ -28,15 +24,21 @@ async def test_exporter_on_successful_events_batches():
     
     events = [_generate_mcp_event() for _ in range(total_events)]
 
-    registry = ExporterRegistry(batch_size=3)
+    #registry = ExporterRegistry(batch_size=3, flush_delta=0.1, num_workers=1)
     registry.start_workers()
     registry.register(exporter=SuccessfulExporter())
     registry.register(exporter=SuccessfulExporter()) # 2
-    registry.dispatch(events=events)
-    await asyncio.sleep(3)  
+    await registry.dispatch(events=events)
+    await asyncio.sleep(5) # wait for events to be processed
 
     assert registry._queue.empty() == True
     assert len(registry._exporters) == 2
+
+    await registry.shutdown() # kills workers, empties and destroys queue, unsubscribes exporters
+
+    assert registry._queue == None
+    assert len(registry._exporters) == 0
+
 
 @pytest.mark.asyncio
 async def test_exporter_auto_removal_on_failure():
@@ -46,41 +48,18 @@ async def test_exporter_auto_removal_on_failure():
         async def export_batch(self, event_batch):
             raise ConnectionError("Service Down")
 
-    event1 = MCPEvent(
-        tool_name="some_tool",
-        args = {"arg1": "string__"},
-        delta=0.5,
-        error="",
-        status="success",
-        timestamp=datetime.now(UTC),
-        result="Result of tool"
-    )
+    event1 = _generate_mcp_event()
 
-    event2 = MCPEvent(
-        tool_name="some_other_tool",
-        args = {"arg1": 1},
-        delta=0.5,
-        error="The result was unsuccessful",
-        status="failure",
-        timestamp=datetime.now(UTC),
-        result={"error": "The input parameters were not correct"}
-    )
+    event2 = _generate_mcp_event()
 
-    event3 = MCPEvent(
-        tool_name="some_tool",
-        args = {"arg1": 0},
-        delta=0.5,
-        status="error",
-        error="The tool returned an error",
-        timestamp=datetime.now(UTC),
-        result=Exception
-    )
+    event3 = _generate_mcp_event()
 
     events = [event1, event2, event3]
-    registry = ExporterRegistry(batch_size=3)
+    registry = ExporterRegistry(batch_size=3, flush_delta=0.1, num_workers=1)
     registry.start_workers()
     registry.register(exporter=FailingExporter())
-    registry.dispatch(events=events)
+    await registry.dispatch(events=events)
+    await registry.shutdown()
     await asyncio.sleep(3)
 
     assert len(registry._exporters) == 0

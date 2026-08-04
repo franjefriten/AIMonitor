@@ -8,7 +8,7 @@ import socket
 import aiofiles
 import json
 import yaml
-from pydantic import AnyUrl, Field, FilePath, HttpUrl, field_validator, SecretStr
+from pydantic import AnyUrl, Field, FilePath, HttpUrl, field_validator, AliasChoices, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 import logging
@@ -62,6 +62,7 @@ class AIMonitorSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="AIMONITOR_",
         env_file=(".env.prod", ".env.stg", ".end.dev", ".env.local", ".end"),
+        populate_by_name=True,
         extra="ignore",
     )
 
@@ -78,26 +79,31 @@ class AIMonitorSettings(BaseSettings):
             "credentials",
         },
         description="Sensitive keys to censor in data",
+        validation_alias=AliasChoices("sensitive_keys", "sensitive-keys", "sensitiveKeys")
     )
     # redis
     redis_url: Optional[AnyUrl] = Field(
         default="redis://localhost:6379/0",
         description="Redis URL to use",
+        validation_alias=AliasChoices("redis_url", "redis-url", "redisUrl")
     )
     # mongo
     mongodb_url: Optional[AnyUrl] = Field(
         default="mongodb://localhost:27017",
         description="MongoDB URL to use",
+        validation_alias=AliasChoices("mongodb_url", "mongodb-url", "mongodbUrl")
     )
     # postgres
     postgres_url: Optional[AnyUrl] = Field(
         default="postgresql://user:password@localhost/dbname",
         description="Postgres URL to use",
+        validation_alias=AliasChoices("postgres_url", "postgres-url", "postgresUrl")
     )
     # prometheus
     prometheus_url: Optional[HttpUrl] = Field(
         default="http://localhost:9000",
         description="Prometheus URL to use",
+        validation_alias=AliasChoices("prometheus_url", "prometheus-url", "prometheusUrl")
     )
     # kafka
     kafka_bootstrap_servers: str = Field(default="localhost:9092", description="Kafka bootstrap servers")    
@@ -111,11 +117,53 @@ class AIMonitorSettings(BaseSettings):
     sqlite_uri: Optional[Path] = Field(
         default=Path("./sqlite_aimonitor.sqlite"),
         description="SQLite path to use",
+        validation_alias=AliasChoices("sqlite_uri", "sqlite-uri", "sqliteUri")
     )
-    max_mb_per_file: Optional[float] = Field(default=10.0, description="Max file size in megabytes", gt=0)
-    retries_policy: Optional[int] = Field(default=3, description="Number of retries for exporters", ge=0)
-    env_code: Optional[_VALID_ENV_CODE] = Field(default=_VALID_ENV_CODE.ENV, description="Environment code used for configs such as logs")
-    file_exporter_logs: Optional[Path] = Field(default=Path("./logs"), description="Folder to which file exporter logs will be dumped into")
+    max_mb_per_file: Optional[float] = Field(
+        default=10.0, 
+        description="Max file size in megabytes",
+        gt=0,
+        validation_alias=AliasChoices("max_mb_per_file", "max-mb-per-file", "maxMbPerFile", "max_mb", "max-mb", "maxMb")
+    )
+    retries_policy: Optional[int] = Field(
+        default=3, 
+        description="Number of retries for exporters", 
+        ge=0,
+        validation_alias=AliasChoices("retries_policy", "retries-policy", "retriesPolicy", "retries")
+    )
+    env_code: Optional[_VALID_ENV_CODE] = Field(
+        default=_VALID_ENV_CODE.ENV, 
+        description="Environment code used for configs such as logs",
+        validation_alias=AliasChoices("env", "envCode", "env-code", "env_code", "environment")    
+    )
+    file_exporter_logs: Optional[Path] = Field(
+        default=Path("./logs"), 
+        description="Folder to which file exporter logs will be dumped into",
+        validation_alias=AliasChoices("file", "file_path", "file-path", "filePath", "file_exporter_logs", "fileExporterLogs", "file-exporter-logs")
+    )
+
+    # tracking validations
+    enabled: bool = Field(
+        default=True,
+        description="Whether general tracking of the module is off or on",
+        validation_alias=AliasChoices("enabled", "enable")
+    )
+    track_metrics: bool = Field(
+        default=True,
+        description="Whether to track metrics",
+        validation_alias=AliasChoices("metrics", "track_metrics", "trackMetrics", "track-metrics")
+    )
+    track_events: bool = Field(
+        default=True,
+        description="Whether to track events",
+        validation_alias=AliasChoices("events", "track_events", "trackEvents", "track-events")
+    )
+    track_logs: bool = Field(
+        default=True,
+        description="Whether to track logs",
+        validation_alias=AliasChoices("logs", "track_logs", "trackLogs", "track-logs")
+    )
+
 
     async def load_from_yaml(self, yaml_file_path: str | Path) -> None:
         yaml_file_path = Path(yaml_file_path)
@@ -129,7 +177,8 @@ class AIMonitorSettings(BaseSettings):
         if data:
             current_data = self.model_dump()
             current_data.update(data)
-            updated_instance = self.__class__(**current_data)
+            # allow pydantic validation for aliases
+            updated_instance = self.__class__.model_validate(**current_data)
             for field, value in updated_instance.model_dump().items():
                 setattr(self, field, value)
 
@@ -147,7 +196,7 @@ class AIMonitorSettings(BaseSettings):
         if data:
             current_data = self.model_dump()
             current_data.update(data)
-            updated_instance = self.__class__(**current_data)
+            updated_instance = self.__class__.model_validate(**current_data)
             for field, value in updated_instance.model_dump().items():
                 setattr(self, field, value)
 
