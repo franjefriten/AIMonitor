@@ -270,7 +270,7 @@ class AIMonitorSettings(BaseSettings):
                     (
                         f"telemetry is set to True in config.yaml or config.json or in .env vars,"
                         f"but opentelemetry is not installed, cannot use inner telemetry."
-                        f"Please install it by running pip install .[telemetry] or uv sync --extra telemetry"
+                        f"Please install it by running pip install .[opentelemetry] or uv sync --extra opentelemetry"
                     )
                 ) from e        
             else:
@@ -294,6 +294,9 @@ class AIMonitorSettings(BaseSettings):
                     return True
             elif normalized in {"false", "0", "no", "off"}:
                 return False
+            raise ValueError("inner_telemetry must be a boolean value or one of: true, false, 1, 0, yes, no, on, off")
+
+        raise ValueError("inner_telemetry must be a boolean or boolean-like string")
 
 
 
