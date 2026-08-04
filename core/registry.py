@@ -11,7 +11,7 @@ from tenacity import retry
 class ExporterRegistry:
     _instance = None
 
-    def __init__(self, batch_size: int = 10, flush_delta: float = 1.0, num_workers: int = 5, register_console: bool = False):
+    def __init__(self, batch_size: int = 10, flush_delta: float = 1.0, num_workers: int = 5):
         self._exporters: List[BaseExporter] = []
         self._num_workers = num_workers
         self._workers: List[asyncio.Task] = []
@@ -19,12 +19,7 @@ class ExporterRegistry:
         self.batch_size = batch_size
         self.flush_delta = flush_delta
         self._loop = None
-        self._register_console = register_console
 
-    def __new__(cls, *args, **kwargs):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
 
     def _ensure_queue_exists(self):
         try:
@@ -38,8 +33,6 @@ class ExporterRegistry:
 
         if self._queue is None:
             self._queue = asyncio.Queue()
-            if self._register_console and not self._exporters:
-                self.register(ConsoleExporter())
 
         return True
 
@@ -100,8 +93,7 @@ class ExporterRegistry:
                     logger.error(f"Error found while sending batch of events! ids: {', '.join(e.id for e in batch)}")
                 finally:
                     logger.info("Finished processing event batch")
-                    for _ in batch:
-                        self._queue.task_done()
+                    self._queue.task_done()
                     last_flush = now
                     batch = []
 
@@ -133,7 +125,6 @@ class ExporterRegistry:
                 await exporter.close()
 
         self._workers = []
-        self.batch = []
         self._exporters = []
         self._queue = None
     
