@@ -157,6 +157,46 @@ class AIMonitorSettings(BaseSettings):
         validation_alias=AliasChoices("inner_telemetry", "innerTelemetry", "inner-telemetry", "telemetry", "track_telemetry", "trackTelemetry", "track-telemetry", "enable-telemetry", "enableTelemetry", "enable_telemetry")
     )
 
+    # OpenTelemetry exporter for monitored MCP events (separate from SDK internal telemetry)
+    otel_mcp_exporter_enabled: bool = Field(
+        default=False,
+        description="Enable OpenTelemetry exporter for MCP events captured by AIMonitor",
+        validation_alias=AliasChoices(
+            "otel_mcp_exporter_enabled",
+            "otel-mcp-exporter-enabled",
+            "otelMcpExporterEnabled",
+            "otel_exporter",
+            "open_telemetry_exporter",
+            "openTelemetryExporter",
+            "mcp_otel_exporter",
+            "mcp-otel-exporter",
+        ),
+    )
+    otel_mcp_service_name: str = Field(
+        default="aimonitor-mcp",
+        description="OpenTelemetry service name used by the MCP events exporter",
+        validation_alias=AliasChoices(
+            "otel_mcp_service_name",
+            "otel-mcp-service-name",
+            "otelMcpServiceName",
+            "otel_service_name",
+            "service_name",
+            "serviceName",
+        ),
+    )
+    otel_mcp_span_prefix: str = Field(
+        default="mcp.tool",
+        description="Span name prefix for monitored MCP tool events",
+        validation_alias=AliasChoices(
+            "otel_mcp_span_prefix",
+            "otel-mcp-span-prefix",
+            "otelMcpSpanPrefix",
+            "otel_span_prefix",
+            "span_prefix",
+            "spanPrefix",
+        ),
+    )
+
 
     async def load_from_yaml(self, yaml_file_path: str | Path) -> None:
         yaml_file_path = Path(yaml_file_path)
