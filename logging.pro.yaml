@@ -1,0 +1,23 @@
+version: 1
+disable_existing_loggers: False
+formatters:
+  standard:
+    format: "%(asctime)s [%(levelname)s] %(name)s - %(filename)s:%(lineno)d: %(message)s"
+    
+handlers:
+  console:
+    class: logging.StreamHandler
+    level: WARNING # ERROR/WARNING ONLY FOR PRO
+    formatter: standard
+    stream: ext://sys.stdout
+    
+  file:
+    class: logging.FileHandler
+    level: ERROR # ERROS ONLY TO AVOID FILE OVERLOAD
+    formatter: standard
+    filename: ai_monitor_error.log
+    mode: a # Append 
+
+root:
+  level: DEBUG 
+  handlers: [console, file]

@@ -1,14 +1,20 @@
 [project]
-name = "AIMonitor"
+name = "aimonitor"
 version = "0.0.1"
 description = "Framework modular de observabilidad para herramientas MCP"
 authors = [
     {name = "Francisco Jesús Frías Tenza", email = "fj.friastenza@gmail.com"}
 ]
 dependencies = [
+    "aiofiles>=25.1.0",
+    "httpx>=0.28.1",
     "pydantic>=2.10.0",
     "pydantic-settings>=2.7.0",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
     "python-dotenv>=1.0.0",
+    "pyyaml>=6.0.3",
+    "tenacity>=9.1.4",
 ]
 requires-python = ">=3.10, <3.14"
 readme = "README.md"
@@ -18,7 +24,17 @@ license = "MIT"
 # Permite instalar solo lo necesario: pip install "mcp-monitor[redis]"
 redis = ["redis>=5.2.0"]
 # Para futuras integraciones de telemetría estándar
-telemetry = ["opentelemetry-api>=1.29.0", "opentelemetry-sdk>=1.29.0"]
+opentelemetry = ["opentelemetry-api>=1.29.0", "opentelemetry-sdk>=1.29.0"]
+sqlite = [
+    "aiosqlite>=0.22.1",
+]
+prometheus = [
+    "prometheus-client>=0.26.0",
+]
+kafka = [
+    "confluent-kafka>=2.15.0",
+]
+
 
 [build-system]
 requires = ["setuptools>=61.0"]
