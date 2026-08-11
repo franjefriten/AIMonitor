@@ -46,3 +46,9 @@ packages = ["core", "exporters", "utils"]
 [tool.uv]
 # Configuración específica para uv si quieres optimizar bloqueos
 package = true
+
+[dependency-groups]
+dev = [
+    "build>=1.5.0",
+    "twine>=7.0.0",
+]
