@@ -35,7 +35,16 @@ class BaseExporter(ABC):
 
         :param event_batch: The batch of events to be exported 
         """
-        pass
+        for event in event_batch:
+            await self.export(event)
+
+    async def connect(self) -> None:
+        """Optional lifecycle hook for exporters that require initialization."""
+        return None
+
+    async def close(self) -> None:
+        """Optional lifecycle hook for exporters that require cleanup."""
+        return None
 
 
 class HTTPBaseExporter(BaseExporter):
