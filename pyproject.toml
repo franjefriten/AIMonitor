@@ -1,5 +1,5 @@
 [project]
-name = "aimonitor"
+name = "ai-monitor-sdk"
 version = "0.0.1"
 description = "Framework modular de observabilidad para herramientas MCP"
 authors = [

@@ -45,7 +45,7 @@ jobs:
             contents: read
 
         environment:
-            name: testpypi
+            name: development
             url: https://test.pypi.org/project/aimonitor/
 
         steps:
