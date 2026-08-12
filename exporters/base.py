@@ -20,7 +20,6 @@ class BaseExporter(ABC):
     """
     SUPPORTED_SIGNALS: set[SignalType] = {SignalType.EVENT, SignalType.METRIC, SignalType.LOG, SignalType.SPAN}
 
-    @abstractmethod
     async def export(self, event: BaseSignal) -> None:
         """
         Export the given event to the desired format.
@@ -29,14 +28,14 @@ class BaseExporter(ABC):
         """
         await self.export_batch(event_batch=[event])
 
+    @abstractmethod
     async def export_batch(self, event_batch: List[BaseSignal]) -> None:
         """
         Export the given batch of events to the desired format.
 
         :param event_batch: The batch of events to be exported 
         """
-        for event in event_batch:
-            await self.export(event)
+        pass
 
     async def connect(self) -> None:
         """Optional lifecycle hook for exporters that require initialization."""
