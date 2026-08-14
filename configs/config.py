@@ -113,6 +113,12 @@ class AIMonitorSettings(BaseSettings):
     kafka_sasl_password: Optional[SecretStr] = Field(default=None, description="Cluster API Secret / Password")
     kafka_group_id: str = Field(default="aimonitor-group", description="Consumer group id")
     kafka_auto_offset_reset: str = Field(default="earliest", description="Auto offset reset")
+    kafka_retry_policy: int = Field(default=3, description="Number of retries for Kafka producer")
+    kafka_delivery_timeout_ms: int = Field(default=120000, description="Delivery timeout in milliseconds for Kafka producer")
+    kafka_request_timeout_ms: int = Field(default=30000, description="Request timeout in milliseconds for Kafka producer")
+    kafka_socket_timeout_ms: int = Field(default=30000, description="Socket timeout in milliseconds for Kafka producer")
+    kafka_reconnect_backoff_ms: int = Field(default=1000, description="Reconnect backoff in milliseconds for Kafka producer")
+    kafka_reconnect_backoff_max_ms: int = Field(default=30000, description="Max reconnect backoff in milliseconds for Kafka producer")
     # sqlite
     sqlite_uri: Optional[Path] = Field(
         default=Path("./sqlite_aimonitor.sqlite"),
@@ -256,6 +262,17 @@ class AIMonitorSettings(BaseSettings):
             'security.protocol': self.kafka_security_protocol,
             'client.id': socket.gethostname(),
             'auto.offset.reset': self.kafka_auto_offset_reset,
+            "acks": "all",  # Ensure all replicas acknowledge the message for durability
+            "enable.idempotence": True,  # Enable idempotent producer to avoid duplicates
+            "retries": self.kafka_retry_policy if self.kafka_retry_policy is not None else 3,  # Set the number of retries
+            "max.in.flight.requests.per.connection": 1,  # Limit the number of in-flight requests to maintain order
+            "linger.ms": 20,  # Small delay to allow batching of messages
+            "compression.type": "snappy",  # Use compression to reduce message size and improve throughput
+            "delivery.timeout.ms": self.kafka_delivery_timeout_ms if self.kafka_delivery_timeout_ms is not None else 120000,  # Delivery timeout
+            "request.timeout.ms": self.kafka_request_timeout_ms if self.kafka_request_timeout_ms is not None else 30000,  # Request timeout
+            "socket.timeout.ms": self.kafka_socket_timeout_ms if self.kafka_socket_timeout_ms is not None else 30000,  # Socket timeout
+            "reconnect.backoff.ms": self.kafka_reconnect_backoff_ms if self.kafka_reconnect_backoff_ms is not None else 1000,  # Reconnect backoff
+            "reconnect.backoff.max.ms": self.kafka_reconnect_backoff_max_ms if self.kafka_reconnect_backoff_max_ms is not None else 30000,  # Max reconnect backoff
         }
         
         # Añadir autenticación SASL solo si está configurada
