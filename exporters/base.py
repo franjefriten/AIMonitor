@@ -111,10 +111,15 @@ class BaseDatabaseExporter(BaseExporter):
         pass
 
 
-def with_retry(func: Callable):
-    return retry(
-        stop=stop_after_attempt(settings.retries_policy),
-        retry=retry_if_exception((ConnectionError, TimeoutError)),
-        wait=wait_exponential(),
-        reraise=True
-    )(func)
+def with_retry(func: Optional[Callable] = None):
+    def decorator(fn: Callable):
+        return retry(
+            stop=stop_after_attempt(settings.retries_policy),
+            retry=retry_if_exception((ConnectionError, TimeoutError)),
+            wait=wait_exponential(),
+            reraise=True,
+        )(fn)
+
+    if func is None:
+        return decorator
+    return decorator(func)
