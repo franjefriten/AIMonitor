@@ -44,6 +44,7 @@ class SignalType(str, Enum):
     LOG = "log"
     METRIC = "metric"
     SPAN = "span"
+    _INNER = "inner"  # Internal SDK signal, not meant for user consumption
 
 
 class BaseSignal(BaseModel):
@@ -132,3 +133,13 @@ class SpanEvent(BaseSignal):
         """
         self.status = Status.ERROR
         self.error = msg
+
+
+class InnerEvent(BaseSignal):
+    """
+    This event is used for aimonitor self tracking, to track inner events of the SDK itself. It is not meant to be used by the user.
+    """
+    event_type: SignalType = Field(default=SignalType._INNER, description="The kind of signal being emitted.")
+    delta: float = Field(default=0.0, description="The execution time of the inner event.")
+    status: Status = Field(default=Status.SUCCESS, description="The status of the inner event.")
+    error: str = Field(default="", description="Error message in the inner event if any.")
