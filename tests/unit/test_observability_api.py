@@ -20,6 +20,12 @@ async def test_observability_api_emits_event_log_and_metric_signals():
         async def export_batch(self, event_batch):
             captured.extend(event_batch)
 
+        async def healthcheck(self):
+            pass
+
+        async def status(self):
+            pass
+
     registry = ExporterRegistry(batch_size=3, flush_delta=0.1, num_workers=1)
     registry._exporters = []
     registry.register(exporter=SpyExporter())

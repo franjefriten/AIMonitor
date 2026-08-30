@@ -6,7 +6,7 @@ except ImportError as e:
     )
    
 from exporters.base import BaseExporter, with_retry
-from core.event import MCPEvent, BaseSignal, SignalType
+from core.event import MCPEvent, BaseSignal, SignalType, HealthCheckEvent, HealthStatus
 
 import socket
 import hashlib
@@ -113,3 +113,58 @@ class KafkaExporter(BaseExporter):
     async def close(self) -> None:
         logger.info("Closing kafka producer and flushing queue...")
         await self.producer.flush()
+
+    
+    async def healthcheck(self) -> bool:
+        """
+        Health check for the KafkaExporter. This exporter is considered healthy if it can connect to the Kafka broker.
+        """
+        success = True
+        error_message = ""
+        try:
+            # Attempt to produce a test message to the Kafka broker
+            test_message = json.dumps({"healthcheck": "test"}).encode("utf-8")
+            await self.producer.produce(
+                topic="aimonitor-healthcheck",
+                key=b"healthcheck",
+                value=test_message,
+                callback=self._report_delivery,
+            )
+            await self.producer.flush()
+        except Exception as e:
+            logger.error(f"Health check failed for KafkaExporter: {e}")
+            success = False
+            error_message = str(e)
+
+        from telemetry.api import internal_telemetry_manager
+        internal_telemetry_manager.track_healthcheck(
+            "KafkaExporter",
+            success,
+            "Health check passed for KafkaExporter." if success else f"Health check failed for KafkaExporter: {error_message}",
+            {"topic": "aimonitor-healthcheck"},
+        )
+
+        if success:
+            logger.info("Health check passed for KafkaExporter.")
+        else:
+            logger.error("Health check failed for KafkaExporter.")
+        return success
+    
+    async def status(self) -> dict:
+        """
+        Returns the status of the KafkaExporter, including the connection status and broker information.
+        """
+        try:
+            # Attempt to get metadata from the Kafka broker
+            metadata = await self.producer.get_metadata(timeout=5.0)
+            return {
+                "status": HealthStatus.HEALTHY,
+                "brokers": [broker.host for broker in metadata.brokers.values()],
+                "topics": list(metadata.topics.keys()),
+            }
+        except Exception as e:
+            logger.error(f"Failed to retrieve Kafka metadata: {e}")
+            return {
+                "status": HealthStatus.UNHEALTHY,
+                "message": f"Failed to retrieve Kafka metadata: {e}",
+            }

@@ -93,6 +93,42 @@ class InternalTelemetryManager:
             # Absolute safety net: an internal telemetry failure never breaks the user's software
             sys.stderr.write(f"[SDK Telemetry Error] Failed to record event '{event_name}': {internal_error}\n")
 
+    def track_healthcheck(
+        self,
+        exporter_name: str,
+        healthy: bool,
+        message: str = "",
+        attributes: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """
+        Record an internal healthcheck result for a concrete exporter.
+
+        This is internal SDK observability, not a business-export event.
+        Health results must be emitted to the internal telemetry channel only.
+        """
+        if not self.enabled or not self.tracer:
+            return
+
+        payload = {
+            "exporter_name": exporter_name,
+            "healthy": bool(healthy),
+            "message": message,
+        }
+        if attributes:
+            payload.update(attributes)
+
+        try:
+            with self.tracer.start_as_current_span("sdk.exporter.healthcheck") as span:
+                for key, value in payload.items():
+                    if isinstance(value, (str, int, float, bool)) or value is None:
+                        span.set_attribute(str(key), value)
+                    else:
+                        span.set_attribute(str(key), str(value))
+        except Exception as internal_error:
+            sys.stderr.write(
+                f"[SDK Telemetry Error] Failed to record exporter healthcheck '{exporter_name}': {internal_error}\n"
+            )
+
     def track_metric_counter(self, metric_name: str, value: int = 1, attributes: Optional[Dict[str, Any]] = None) -> None:
         """
         Example for recording internal metrics (counters) optionally.

@@ -47,6 +47,11 @@ class SignalType(str, Enum):
     _INNER = "inner"  # Internal SDK signal, not meant for user consumption
 
 
+class HealthStatus(str, Enum):
+    """Health status of the SDK or its components."""
+    HEALTHY = "healthy"
+    UNHEALTHY = "unhealthy"
+
 class BaseSignal(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()), description="Unique identifier for the signal.")
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC), description="The timestamp of when the signal was generated.")
@@ -143,3 +148,12 @@ class InnerEvent(BaseSignal):
     delta: float = Field(default=0.0, description="The execution time of the inner event.")
     status: Status = Field(default=Status.SUCCESS, description="The status of the inner event.")
     error: str = Field(default="", description="Error message in the inner event if any.")
+
+
+class HealthCheckEvent(BaseSignal):
+    """
+    This event is used to track the health of the SDK and its exporters. It is not meant to be used by the user.
+    """
+    event_type: SignalType = Field(default=SignalType._INNER, description="The kind of signal being emitted.")
+    status: HealthStatus = Field(default=HealthStatus.HEALTHY, description="The status of the health check.")
+    message: str = Field(default="", description="Message describing the health check status.")

@@ -25,10 +25,31 @@ class ExporterRegistry:
             self._queue: asyncio.Queue | None = None
         if not hasattr(self, "_loop"):
             self._loop = None
+        if not hasattr(self, "_healthcheck_worker"):
+            self._healthcheck_worker: asyncio.Task | None = None
 
         self._num_workers = num_workers
         self.batch_size = batch_size
         self.flush_delta = flush_delta
+        self._healthcheck_interval = 60
+
+    def _start_healthcheck_worker(self):
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+
+        if self._healthcheck_worker is None or self._healthcheck_worker.done():
+            self._healthcheck_worker = loop.create_task(self._healthcheck_loop())
+
+    async def _healthcheck_loop(self):
+        while True:
+            for exporter in list(self._exporters):
+                try:
+                    await exporter.healthcheck()
+                except Exception as e:
+                    logger.error(f"Health check failed for exporter {exporter}: {e}")
+            await asyncio.sleep(self._healthcheck_interval)
 
 
     def _ensure_queue_exists(self):
@@ -57,6 +78,7 @@ class ExporterRegistry:
 
     def register(self, exporter: BaseExporter):
         self._exporters.append(exporter)
+        self._start_healthcheck_worker()
 
     async def dispatch(self, events: List[BaseSignal] | BaseSignal):
         if not self._ensure_queue_exists():
@@ -129,7 +151,14 @@ class ExporterRegistry:
                 logger.error(f"Exporter {exporter_name} failed to exporter event batch, popping it from list, error: {repr(exc)}")
                 failed_exporters.append(i)
         for exporter_index in sorted(failed_exporters, reverse=True):
+            exporter = self._exporters[exporter_index]
+            try:
+                if hasattr(exporter, "close"):
+                    await exporter.close()
+            except Exception:
+                logger.warning("Failed to close exporter %s during removal.", exporter.__class__.__name__)
             self._exporters.pop(exporter_index)
+            
     
     async def shutdown(self):
         if self._queue is None:
@@ -141,6 +170,11 @@ class ExporterRegistry:
             worker.cancel()
         if self._workers:
             await asyncio.gather(*self._workers, return_exceptions=True)
+
+        if self._healthcheck_worker is not None:
+            self._healthcheck_worker.cancel()
+            await asyncio.gather(self._healthcheck_worker, return_exceptions=True)
+            self._healthcheck_worker = None
 
         for exporter in self._exporters:
             if hasattr(exporter, 'close'):

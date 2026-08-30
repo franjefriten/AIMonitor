@@ -15,7 +15,7 @@ class ConsoleExporter(BaseExporter):
     """
     Basic exporter that prints events to the console. This exporter is primarily intended for debugging and development purposes, allowing developers to see the events being processed in real-time.
     """
-    SUPPORTED_SIGNALS = {SignalType.EVENT, SignalType.LOG, SignalType.METRIC, SignalType.SPAN}  # logs everything    
+    SUPPORTED_SIGNALS = {SignalType.EVENT, SignalType.LOG, SignalType.METRIC, SignalType.SPAN, SignalType._INNER}  # logs everything    
     
     def __init__(self, stream: io.TextIOBase = sys.stdout):
         super().__init__()
@@ -55,4 +55,18 @@ class ConsoleExporter(BaseExporter):
         if hasattr(self.stream, "flush"):
             self.stream.flush()
 
+    async def healthcheck(self) -> bool:
+        """
+        Health check for the ConsoleExporter. Since this exporter writes to the console, it is always considered healthy.
+        """
+        self.stream.write("[TRACE][{}] Health check passed for ConsoleExporter.\n".format(datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S.%f')))
+        if hasattr(self.stream, "flush"):
+            self.stream.flush()
+        return True
+    
+    async def status(self) -> dict:
+        """
+        Get the status of the ConsoleExporter. Since this exporter writes to the console, it is always considered healthy.
+        """
+        return {"status": "healthy", "message": "ConsoleExporter is operational."}
         

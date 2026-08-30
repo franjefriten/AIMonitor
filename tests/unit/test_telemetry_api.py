@@ -130,3 +130,20 @@ def test_configure_internal_telemetry_reuses_meter_counters():
 
     counter = fake_meter.counters["metric.sample"]
     assert counter.calls == [(1, {}), (2, {})]
+
+
+def test_track_healthcheck_reports_exporter_state_to_internal_telemetry():
+    fake_module, fake_tracer, _ = _build_fake_opentelemetry_module()
+
+    with patch.dict("sys.modules", {"opentelemetry": fake_module}):
+        manager = configure_internal_telemetry(enabled=True, service_name="test-service")
+        manager.track_healthcheck("KafkaExporter", True, "Broker reachable", {"topic": "aimonitor-healthcheck"})
+
+    assert manager.enabled is True
+    assert len(fake_tracer.started_spans) == 1
+    event_name, span = fake_tracer.started_spans[0]
+    assert event_name == "sdk.exporter.healthcheck"
+    assert span.attributes["exporter_name"] == "KafkaExporter"
+    assert span.attributes["healthy"] is True
+    assert span.attributes["message"] == "Broker reachable"
+    assert span.attributes["topic"] == "aimonitor-healthcheck"

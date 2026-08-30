@@ -18,7 +18,7 @@ class BaseExporter(ABC):
     """
     Base class for all exporters. This class defines the interface that all exporters must implement.
     """
-    SUPPORTED_SIGNALS: set[SignalType] = {SignalType.EVENT, SignalType.METRIC, SignalType.LOG, SignalType.SPAN}
+    SUPPORTED_SIGNALS: set[SignalType] = {SignalType.EVENT, SignalType.METRIC, SignalType.LOG, SignalType.SPAN, SignalType._INNER}  # logs everything
 
     async def export(self, event: BaseSignal) -> None:
         """
@@ -44,6 +44,31 @@ class BaseExporter(ABC):
     async def close(self) -> None:
         """Optional lifecycle hook for exporters that require cleanup."""
         return None
+
+    @abstractmethod    
+    async def healthcheck(self) -> bool:
+        """Mandatory method to check the health of the exporter. 
+        Must be always implemented.
+        The healthcheck should emit a HealthCheckEvent with the status of the exporter.
+        """
+        pass
+
+    @abstractmethod
+    async def status(self) -> dict:
+        """Mandatory method to get the status of the exporter. Must be always implemented.
+        It should always return a dictionary with the status of the exporter, 
+        including any relevant information such as connection status, last export time, etc.
+        Example:
+        {
+            "status": "healthy",
+            "message": "Exporter is healthy and connected to the destination.",
+            "timestamp": "2023-01-01T12:00:00Z"
+        }
+        Only status is requiered, but you can add any other information you want to include in the status.
+        """
+        pass
+    
+
 
 
 class HTTPBaseExporter(BaseExporter):

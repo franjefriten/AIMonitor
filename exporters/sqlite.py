@@ -105,3 +105,30 @@ class SQLiteExporter(BaseDatabaseExporter):
             )
 
         await self.client.commit()
+
+    
+    async def healthcheck(self) -> bool:
+        """
+        Health check for the SQLiteExporter. This exporter is considered healthy if it can connect to the SQLite database.
+        """
+        success = True
+        try:
+            async with self.client.execute("SELECT 1;") as cursor:
+                await cursor.fetchone()
+        except Exception as e:
+            logger.error(f"Health check failed for SQLiteExporter: {e}")
+            success = False
+        return success
+    
+    async def status(self) -> dict:
+        """
+        Returns the status of the SQLiteExporter, including the connection status and database file path.
+        """
+        if not self.client:
+            return {"status": "unhealthy", "message": "SQLiteExporter is not connected."}
+        
+        return {
+            "status": "healthy",
+            "database": self.dsn,
+            "table_name": self.table_name
+        }
