@@ -155,16 +155,16 @@ class KafkaExporter(BaseExporter):
         Returns the status of the KafkaExporter, including the connection status and broker information.
         """
         try:
-            # Attempt to get metadata from the Kafka broker
             metadata = await self.producer.get_metadata(timeout=5.0)
             return {
-                "status": HealthStatus.HEALTHY,
+                "status": "healthy",
+                "message": "KafkaExporter is operational.",
                 "brokers": [broker.host for broker in metadata.brokers.values()],
                 "topics": list(metadata.topics.keys()),
             }
         except Exception as e:
             logger.error(f"Failed to retrieve Kafka metadata: {e}")
             return {
-                "status": HealthStatus.UNHEALTHY,
+                "status": "unhealthy",
                 "message": f"Failed to retrieve Kafka metadata: {e}",
             }

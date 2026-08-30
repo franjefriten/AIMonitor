@@ -72,11 +72,12 @@ class WebhookExporter(HTTPBaseExporter):
         Returns the status of the WebhookExporter, including the URL and connection status.
         """
         if not self.client:
-            return {"status": HealthStatus.UNHEALTHY, "message": "WebhookExporter is not connected."}
-        
+            return {"status": "unhealthy", "message": "WebhookExporter is not connected."}
+
         return {
-            "status": HealthStatus.HEALTHY,
+            "status": "healthy",
+            "message": "WebhookExporter is operational.",
             "url": self.url,
             "headers": self.headers,
-            "auth": str(self.auth) if self.auth else None
+            "auth": str(self.auth) if self.auth else None,
         }

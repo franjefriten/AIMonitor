@@ -126,9 +126,10 @@ class SQLiteExporter(BaseDatabaseExporter):
         """
         if not self.client:
             return {"status": "unhealthy", "message": "SQLiteExporter is not connected."}
-        
+
         return {
             "status": "healthy",
+            "message": "SQLiteExporter is operational.",
             "database": self.dsn,
-            "table_name": self.table_name
+            "table_name": self.table_name,
         }

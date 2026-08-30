@@ -137,13 +137,14 @@ class FileExporter(BaseExporter):
         Returns the status of the FileExporter, including the current file being written to and its size.
         """
         if not self.client:
-            return {"status": HealthStatus.UNHEALTHY, "message": "FileExporter is not connected."}
-        
+            return {"status": "unhealthy", "message": "FileExporter is not connected."}
+
         file_size = self.file_uri.stat().st_size if self.file_uri.exists() else 0
         return {
-            "status": HealthStatus.HEALTHY,
+            "status": "healthy",
+            "message": "FileExporter is operational.",
             "current_file": str(self.file_uri),
             "file_size_bytes": file_size,
             "rotation": self.rotation,
-            "date": str(self.date)
+            "date": str(self.date),
         }

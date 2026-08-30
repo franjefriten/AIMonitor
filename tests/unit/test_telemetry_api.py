@@ -147,3 +147,27 @@ def test_track_healthcheck_reports_exporter_state_to_internal_telemetry():
     assert span.attributes["healthy"] is True
     assert span.attributes["message"] == "Broker reachable"
     assert span.attributes["topic"] == "aimonitor-healthcheck"
+
+
+def test_track_system_health_snapshot_reports_summary_for_all_exporters():
+    fake_module, _, _ = _build_fake_opentelemetry_module()
+
+    class HealthyExporter:
+        async def status(self):
+            return {"status": "healthy", "message": "ok"}
+
+    class UnhealthyExporter:
+        async def status(self):
+            return {"status": "unhealthy", "message": "down"}
+
+    with patch.dict("sys.modules", {"opentelemetry": fake_module}):
+        manager = configure_internal_telemetry(enabled=True, service_name="test-service")
+        import asyncio
+        snapshot = asyncio.run(manager.track_system_health_snapshot_async([HealthyExporter(), UnhealthyExporter()]))
+
+    assert snapshot["total_exporters"] == 2
+    assert snapshot["healthy_count"] == 1
+    assert snapshot["unhealthy_count"] == 1
+    assert snapshot["status"] == "degraded"
+    assert snapshot["exporters"][0]["name"] == "HealthyExporter"
+    assert snapshot["exporters"][1]["status"] == "unhealthy"

@@ -146,7 +146,8 @@ class OpenTelemetryExporter(BaseExporter):
 
     async def status(self) -> dict:
         return {
-            "status": HealthStatus.HEALTHY if self.enabled and self.tracer is not None else HealthStatus.UNHEALTHY,
+            "status": "healthy" if self.enabled and self.tracer is not None else "unhealthy",
+            "message": "OpenTelemetry MCP exporter is operational." if self.enabled and self.tracer is not None else "OpenTelemetry MCP exporter is not operational.",
             "service_name": self.service_name,
             "enabled": self.enabled,
             "span_prefix": self.span_prefix,

@@ -68,5 +68,9 @@ class ConsoleExporter(BaseExporter):
         """
         Get the status of the ConsoleExporter. Since this exporter writes to the console, it is always considered healthy.
         """
-        return {"status": "healthy", "message": "ConsoleExporter is operational."}
+        return {
+            "status": "healthy",
+            "message": "ConsoleExporter is operational.",
+            "stream": str(getattr(self.stream, "name", self.stream.__class__.__name__)),
+        }
         
