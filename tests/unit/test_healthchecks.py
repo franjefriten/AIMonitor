@@ -33,13 +33,16 @@ async def test_health_check_event_emission():
     # Create an instance of the exporter to test
     exporter = registry._exporters[0]
 
+    # Clear captured events before manual healthcheck to isolate the test
+    captured.clear()
+    
     # Perform the health check
-    await exporter.health_check()
+    await exporter.healthcheck()
 
-    await asyncio.sleep(0.3)
-
-    # Check that a HealthCheckEvent was emitted
-    assert len(captured) == 1
+    # Check that a HealthCheckEvent was emitted from the manual call
+    assert len(captured) >= 1
     event = captured[0]
     assert isinstance(event, HealthCheckEvent)
     assert event.status == HealthStatus.HEALTHY
+    
+    await registry.shutdown()

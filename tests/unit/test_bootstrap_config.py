@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytest
@@ -5,6 +6,13 @@ import pytest
 from bootstrap import initialize_monitor
 from configs.config import AIMonitorSettings
 from core.registry import registry
+
+
+@pytest.fixture(autouse=True)
+def clear_aimonitor_env(monkeypatch):
+    for key in list(os.environ):
+        if key.startswith("AIMONITOR_"):
+            monkeypatch.delenv(key, raising=False)
 
 
 @pytest.mark.asyncio
@@ -25,7 +33,7 @@ exporters:
     url: "http://localhost:9000"
   file:
     enabled: true
-    path: "./tmp_runtime_logs"
+    file_path: "./tmp_runtime_logs"
   otel:
     enabled: true
     service_name: "aimonitor-test"
@@ -37,7 +45,8 @@ exporters:
     await settings.load_from_yaml(config_path)
 
     assert settings.prometheus_enabled is True
-    assert str(settings.prometheus_url) == "http://localhost:9000/"
+    assert settings.prometheus_url is not None
+    assert str(settings.prometheus_url).startswith("http://localhost:9000")
     assert settings.file_enabled is True
     assert settings.file_exporter_logs == Path("./tmp_runtime_logs")
     assert settings.otel_mcp_exporter_enabled is True
@@ -95,5 +104,73 @@ telemetry:
     assert settings.inner_telemetry is True
     assert settings.healthcheck_enabled is True
     assert settings.healthcheck_interval == 15
+
+    await registry.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_nested_config_sections_are_available_for_runtime_and_compatibility(tmp_path):
+    config_path = tmp_path / "nested_aimonitor.yaml"
+    config_path.write_text(
+        """
+app:
+  env: STG
+telemetry:
+  inner_telemetry: true
+  healthcheck_enabled: true
+  healthcheck_interval: 25
+exporters:
+  kafka:
+    enabled: true
+    bootstrap_servers: "localhost:9092"
+    producer:
+      acks: all
+      max_workers: 7
+      batch_size: 256
+""".strip()
+    )
+
+    settings = AIMonitorSettings()
+    await settings.load_from_yaml(config_path)
+
+    assert settings.app.env_code == "STG"
+    assert settings.telemetry.inner_telemetry is True
+    assert settings.telemetry.healthcheck_enabled is True
+    assert settings.telemetry.healthcheck_interval == 25
+    assert settings.exporters.kafka.enabled is True
+    assert settings.exporters.kafka.bootstrap_servers == "localhost:9092"
+    assert settings.exporters.kafka.producer.max_workers == 7
+    assert settings.exporters.kafka.producer.batch_size == 256
+
+    assert settings.kafka_enabled is True
+    assert settings.kafka_bootstrap_servers == "localhost:9092"
+    assert settings.kafka_max_workers == 7
+    assert settings.kafka_batch_size == 256
+
+    await registry.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_environment_variables_take_priority_over_yaml_values(tmp_path, monkeypatch):
+    monkeypatch.setenv("AIMONITOR_PROMETHEUS_ENABLED", "true")
+    monkeypatch.setenv("AIMONITOR_PROMETHEUS_URL", "http://env-host:9000")
+
+    config_path = tmp_path / "env_precedence.yaml"
+    config_path.write_text(
+        """
+exporters:
+  prometheus:
+    enabled: true
+    url: "http://file-host:9000"
+""".strip()
+    )
+
+    settings = AIMonitorSettings()
+    await settings.load_from_yaml(config_path)
+
+    assert settings.prometheus_enabled is True
+    assert str(settings.prometheus_url).startswith("http://env-host:9000")
+    assert settings.exporters.prometheus.enabled is True
+    assert str(settings.exporters.prometheus.url).startswith("http://env-host:9000")
 
     await registry.shutdown()

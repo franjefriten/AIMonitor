@@ -14,10 +14,12 @@ async def main():
     print(settings.prometheus_enabled, settings.kafka_enabled)
 ```
 
-This does two things:
+The `initialize_monitor()` function:
 
 1. Loads the config file into `AIMonitorSettings`
-2. Registers only the exporters that are enabled in the config
+2. Applies environment variables with highest precedence
+3. Registers only the exporters that are enabled in the config
+4. Returns the settings instance for runtime use
 
 ## Environment variables
 
@@ -33,7 +35,7 @@ AIMONITOR_HEALTHCHECK_ENABLED=true
 AIMONITOR_HEALTHCHECK_INTERVAL=60
 AIMONITOR_PROMETHEUS_URL=http://localhost:9000
 AIMONITOR_SQLITE_URI=./aimonitor.sqlite
-AIMONITOR_FILE_EXPORTER_LOGS=./logs
+AIMONITOR_FILE_PATH=./logs
 AIMONITOR_MAX_MB_PER_FILE=10.0
 AIMONITOR_RETRIES_POLICY=3
 AIMONITOR_OTEL_MCP_EXPORTER_ENABLED=true
@@ -67,7 +69,7 @@ exporters:
 
   file:
     enabled: true
-    path: "./tmp_runtime_logs"
+    file_path: "./tmp_runtime_logs"
 
   otel:
     enabled: true
@@ -166,12 +168,13 @@ These control the SDK observability layer and the background exporter readiness 
 
 ## Configuration precedence
 
-Settings are applied in this order:
+Settings are applied in this order (highest to lowest priority):
 
-1. Built-in defaults in `AIMonitorSettings`
-2. Environment variables and `.env` values
-3. Runtime values from `load_from_yaml()` / `load_from_json()`
-4. Explicit values assigned after initialization
+1. **Environment variables** (`AIMONITOR_*` prefix)
+2. Runtime values from `load_from_yaml()` / `load_from_json()`
+3. Built-in defaults in `AIMonitorSettings`
+
+Environment variables always override file-based configuration. This enables secure credential injection and environment-specific overrides.
 
 ## Sensitive data redaction
 
