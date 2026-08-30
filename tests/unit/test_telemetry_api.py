@@ -171,3 +171,25 @@ def test_track_system_health_snapshot_reports_summary_for_all_exporters():
     assert snapshot["status"] == "degraded"
     assert snapshot["exporters"][0]["name"] == "HealthyExporter"
     assert snapshot["exporters"][1]["status"] == "unhealthy"
+
+
+def test_get_system_health_uses_explicit_sdk_health_enum():
+    fake_module, _, _ = _build_fake_opentelemetry_module()
+
+    class HealthyExporter:
+        async def status(self):
+            return {"status": "healthy", "message": "ok"}
+
+    class UnhealthyExporter:
+        async def status(self):
+            return {"status": "unhealthy", "message": "down"}
+
+    with patch.dict("sys.modules", {"opentelemetry": fake_module}):
+        manager = configure_internal_telemetry(enabled=True, service_name="test-service")
+        import asyncio
+        health = asyncio.run(manager.get_system_health([HealthyExporter(), UnhealthyExporter()]))
+
+    assert health["status"] == "degraded"
+    assert health["summary"]["healthy_count"] == 1
+    assert health["summary"]["unhealthy_count"] == 1
+    assert health["overall"] in {"healthy", "degraded", "unhealthy", "empty"}

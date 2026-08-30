@@ -1,9 +1,18 @@
 import sys
 import os
 import asyncio
+from enum import Enum
 from typing import Optional, Dict, Any
 from utils.logger import logger
 from configs.config import get_settings
+
+
+class SDKHealthStatus(str, Enum):
+    """Aggregate health state for the internal SDK health layer."""
+    HEALTHY = "healthy"
+    DEGRADED = "degraded"
+    UNHEALTHY = "unhealthy"
+    EMPTY = "empty"
 
 class InternalTelemetryManager:
     """
@@ -198,6 +207,32 @@ class InternalTelemetryManager:
             return asyncio.run(self.track_system_health_snapshot_async(exporters))
 
         raise RuntimeError("Use 'await track_system_health_snapshot_async(exporters)' when running in an event loop.")
+
+    async def get_system_health(self, exporters: list) -> Dict[str, Any]:
+        """
+        Return a structured SDK health snapshot built from exporter status payloads.
+        This is the canonical internal API for SDK health readout and can be consumed by
+        operators, debugging tools, or the registry health loop.
+        """
+        snapshot = await self.track_system_health_snapshot_async(exporters)
+        overall = SDKHealthStatus.HEALTHY.value
+        if snapshot["status"] == "degraded":
+            overall = SDKHealthStatus.DEGRADED.value
+        elif snapshot["status"] == "unhealthy":
+            overall = SDKHealthStatus.UNHEALTHY.value
+        elif snapshot["status"] == "empty":
+            overall = SDKHealthStatus.EMPTY.value
+
+        return {
+            "status": overall,
+            "overall": overall,
+            "summary": {
+                "total_exporters": snapshot["total_exporters"],
+                "healthy_count": snapshot["healthy_count"],
+                "unhealthy_count": snapshot["unhealthy_count"],
+            },
+            "exporters": snapshot["exporters"],
+        }
 
     def track_metric_counter(self, metric_name: str, value: int = 1, attributes: Optional[Dict[str, Any]] = None) -> None:
         """
