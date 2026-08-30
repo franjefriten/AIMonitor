@@ -42,6 +42,24 @@ _INNER_TELEMETRY_ALIASES = frozenset({
     "enableTelemetry",
     "enable_telemetry"
 })
+_HEALTHCHECK_ENABLED_ALIASES = frozenset({
+    "healthcheck_enabled",
+    "healthcheck-enabled",
+    "healthcheckEnabled",
+    "exporter_healthcheck_enabled",
+    "exporterHealthcheckEnabled",
+    "enable_healthcheck",
+    "enableHealthcheck",
+})
+_HEALTHCHECK_INTERVAL_ALIASES = frozenset({
+    "healthcheck_interval",
+    "healthcheck-interval",
+    "healthcheckInterval",
+    "exporter_healthcheck_interval",
+    "exporterHealthcheckInterval",
+    "telemetry_healthcheck_interval",
+    "telemetryHealthcheckInterval",
+})
 _OTEL_MCP_EXPORTER_ENABLED_ALIASES = frozenset({
     "otel_mcp_exporter_enabled",
     "otel-mcp-exporter-enabled",
@@ -271,6 +289,17 @@ class AIMonitorSettings(BaseSettings):
         description="Option to track telemetry of the module itself, useful for debugging and development",
         validation_alias=AliasChoices(*_INNER_TELEMETRY_ALIASES)
     )
+    healthcheck_enabled: bool = Field(
+        default=True,
+        description="Whether the registry background exporter healthcheck loop is enabled",
+        validation_alias=AliasChoices(*_HEALTHCHECK_ENABLED_ALIASES),
+    )
+    healthcheck_interval: int = Field(
+        default=60,
+        description="Seconds between exporter health checks when the registry background loop is enabled",
+        ge=1,
+        validation_alias=AliasChoices(*_HEALTHCHECK_INTERVAL_ALIASES),
+    )
 
     # OpenTelemetry exporter for monitored MCP events (separate from SDK internal telemetry)
     otel_enabled: bool = Field(
@@ -334,6 +363,12 @@ class AIMonitorSettings(BaseSettings):
             inner_telemetry = next(iter(telemetry_data.get(telemetry_label) for telemetry_label in _INNER_TELEMETRY_ALIASES if telemetry_label in telemetry_data), None)
             if inner_telemetry is not None:
                 flattened_data["inner_telemetry"] = inner_telemetry
+            healthcheck_enabled = next(iter(telemetry_data.get(telemetry_label) for telemetry_label in _HEALTHCHECK_ENABLED_ALIASES if telemetry_label in telemetry_data), None)
+            if healthcheck_enabled is not None:
+                flattened_data["healthcheck_enabled"] = healthcheck_enabled
+            healthcheck_interval = next(iter(telemetry_data.get(telemetry_label) for telemetry_label in _HEALTHCHECK_INTERVAL_ALIASES if telemetry_label in telemetry_data), None)
+            if healthcheck_interval is not None:
+                flattened_data["healthcheck_interval"] = healthcheck_interval
             
             # security
             security_data: dict = data.get("security", {})
@@ -538,6 +573,12 @@ class AIMonitorSettings(BaseSettings):
             inner_telemetry = next(iter(telemetry_data.get(telemetry_label) for telemetry_label in _INNER_TELEMETRY_ALIASES if telemetry_label in telemetry_data), None)
             if inner_telemetry is not None:
                 flattened_data["inner_telemetry"] = inner_telemetry
+            healthcheck_enabled = next(iter(telemetry_data.get(telemetry_label) for telemetry_label in _HEALTHCHECK_ENABLED_ALIASES if telemetry_label in telemetry_data), None)
+            if healthcheck_enabled is not None:
+                flattened_data["healthcheck_enabled"] = healthcheck_enabled
+            healthcheck_interval = next(iter(telemetry_data.get(telemetry_label) for telemetry_label in _HEALTHCHECK_INTERVAL_ALIASES if telemetry_label in telemetry_data), None)
+            if healthcheck_interval is not None:
+                flattened_data["healthcheck_interval"] = healthcheck_interval
             
             # security
             security_data: dict = data.get("security", {})
@@ -798,41 +839,31 @@ class AIMonitorSettings(BaseSettings):
     def validate_inner_telemetry(cls, v: Optional[bool]) -> Optional[bool]:
         if v is None:
             return False
-        if isinstance(v, bool) and v is True:
-            try:
-                import opentelemetry
-            except ImportError as e:
-                raise ImportError(
-                    (
-                        f"telemetry is set to True in config.yaml or config.json or in .env vars,"
-                        f"but opentelemetry is not installed, cannot use inner telemetry."
-                        f"Please install it by running pip install .[opentelemetry] or uv sync --extra opentelemetry"
-                    )
-                ) from e        
-            else:
-                return True
-        elif isinstance(v, bool) and v is False:
-            return False
+        if isinstance(v, bool):
+            return v
         if isinstance(v, str):
-            normalized = v.lower()
+            normalized = v.strip().lower()
             if normalized in {"true", "1", "yes", "on"}:
-                try:
-                    import opentelemetry
-                except ImportError as e:
-                    raise ImportError(
-                        (
-                            f"telemetry is set to True in config.yaml or config.json or in .env vars,"
-                            f"but opentelemetry is not installed, cannot use inner telemetry."
-                            f"Please install it by running pip install .[opentelemetry] or uv sync --extra opentelemetry"
-                        )
-                    ) from e
-                else:
-                    return True
-            elif normalized in {"false", "0", "no", "off"}:
+                return True
+            if normalized in {"false", "0", "no", "off"}:
                 return False
             raise ValueError("inner_telemetry must be a boolean value or one of: true, false, 1, 0, yes, no, on, off")
-
         raise ValueError("inner_telemetry must be a boolean or boolean-like string")
+
+    @field_validator("healthcheck_enabled", mode="before")
+    @classmethod
+    def validate_healthcheck_enabled(cls, v: Optional[bool]) -> Optional[bool]:
+        if v is None:
+            return True
+        if isinstance(v, bool):
+            return v
+        if isinstance(v, str):
+            normalized = v.strip().lower()
+            if normalized in {"true", "1", "yes", "on"}:
+                return True
+            if normalized in {"false", "0", "no", "off"}:
+                return False
+        raise ValueError("healthcheck_enabled must be a boolean value or one of: true, false, 1, 0, yes, no, on, off")
 
 
 

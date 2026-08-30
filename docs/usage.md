@@ -43,6 +43,9 @@ AIMONITOR_ENV=ENV
 AIMONITOR_TRACK_METRICS=true
 AIMONITOR_TRACK_EVENTS=true
 AIMONITOR_TRACK_LOGS=true
+AIMONITOR_INNER_TELEMETRY=false
+AIMONITOR_HEALTHCHECK_ENABLED=true
+AIMONITOR_HEALTHCHECK_INTERVAL=60
 AIMONITOR_PROMETHEUS_URL=http://localhost:9000
 AIMONITOR_SQLITE_URI=./aimonitor.sqlite
 AIMONITOR_FILE_EXPORTER_LOGS=./logs
@@ -147,6 +150,11 @@ tracking:
   track_metrics: true
   track_events: true
   track_logs: true
+
+telemetry:
+  inner_telemetry: false
+  healthcheck_enabled: true
+  healthcheck_interval: 60
 
 exporters:
   kafka:

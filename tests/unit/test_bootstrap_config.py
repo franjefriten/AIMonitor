@@ -4,6 +4,7 @@ import pytest
 
 from bootstrap import initialize_monitor
 from configs.config import AIMonitorSettings
+from core.registry import registry
 
 
 @pytest.mark.asyncio
@@ -46,6 +47,8 @@ exporters:
     assert initialized.prometheus_enabled is True
     assert initialized.file_enabled is True
 
+    await registry.shutdown()
+
 
 @pytest.mark.asyncio
 async def test_initialize_monitor_reads_kafka_worker_and_batch_settings(tmp_path):
@@ -70,3 +73,27 @@ exporters:
     assert settings.kafka_bootstrap_servers == "localhost:9092"
     assert settings.kafka_batch_size == 2048
     assert settings.kafka_max_workers == 12
+
+    await registry.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_initialize_monitor_reads_internal_telemetry_healthcheck_settings(tmp_path):
+    config_path = tmp_path / "telemetry_aimonitor.yaml"
+    config_path.write_text(
+        """
+telemetry:
+  inner_telemetry: true
+  healthcheck_enabled: true
+  healthcheck_interval: 15
+""".strip()
+    )
+
+    settings = AIMonitorSettings()
+    await settings.load_from_yaml(config_path)
+
+    assert settings.inner_telemetry is True
+    assert settings.healthcheck_enabled is True
+    assert settings.healthcheck_interval == 15
+
+    await registry.shutdown()

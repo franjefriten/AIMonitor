@@ -14,6 +14,8 @@ async def initialize_monitor(config_path: str | Path | None = None) -> AIMonitor
     """Load runtime config and register only enabled exporters."""
     settings = get_settings()
 
+    await registry.shutdown()
+
     if config_path is not None:
         path = Path(config_path)
         if path.suffix.lower() in {".yaml", ".yml"}:

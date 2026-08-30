@@ -2,6 +2,7 @@ from typing import List
 from exporters.base import BaseExporter
 from exporters.console import ConsoleExporter
 from core.event import BaseSignal
+from configs.config import get_settings
 import httpx
 import asyncio
 import time
@@ -31,9 +32,19 @@ class ExporterRegistry:
         self._num_workers = num_workers
         self.batch_size = batch_size
         self.flush_delta = flush_delta
-        self._healthcheck_interval = 60
+        settings = get_settings()
+        self._healthcheck_enabled = settings.healthcheck_enabled
+        self._healthcheck_interval = settings.healthcheck_interval
 
     def _start_healthcheck_worker(self):
+        settings = get_settings()
+        if not settings.healthcheck_enabled:
+            self._healthcheck_enabled = False
+            return
+
+        self._healthcheck_enabled = True
+        self._healthcheck_interval = settings.healthcheck_interval
+
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -43,7 +54,7 @@ class ExporterRegistry:
             self._healthcheck_worker = loop.create_task(self._healthcheck_loop())
 
     async def _healthcheck_loop(self):
-        while True:
+        while self._healthcheck_enabled:
             for exporter in list(self._exporters):
                 try:
                     await exporter.healthcheck()
@@ -161,12 +172,10 @@ class ExporterRegistry:
             
     
     async def shutdown(self):
-        if self._queue is None:
-            return
+        if self._queue is not None:
+            await self._queue.join()
 
-        await self._queue.join()
-
-        for worker in self._workers:
+        for worker in list(self._workers):
             worker.cancel()
         if self._workers:
             await asyncio.gather(*self._workers, return_exceptions=True)
@@ -176,14 +185,18 @@ class ExporterRegistry:
             await asyncio.gather(self._healthcheck_worker, return_exceptions=True)
             self._healthcheck_worker = None
 
-        for exporter in self._exporters:
-            if hasattr(exporter, 'close'):
-                await exporter.close()
+        for exporter in list(self._exporters):
+            try:
+                if hasattr(exporter, 'close'):
+                    await exporter.close()
+            except Exception:
+                logger.warning("Failed to close exporter %s during shutdown.", exporter.__class__.__name__)
 
         self._workers = []
         self._exporters = []
         self._queue = None
         self._loop = None
+        self._healthcheck_enabled = False
     
 
 # Global singleton instance of the ExporterRegistry

@@ -28,6 +28,9 @@ AIMONITOR_ENV=ENV
 AIMONITOR_TRACK_METRICS=true
 AIMONITOR_TRACK_EVENTS=true
 AIMONITOR_TRACK_LOGS=true
+AIMONITOR_INNER_TELEMETRY=false
+AIMONITOR_HEALTHCHECK_ENABLED=true
+AIMONITOR_HEALTHCHECK_INTERVAL=60
 AIMONITOR_PROMETHEUS_URL=http://localhost:9000
 AIMONITOR_SQLITE_URI=./aimonitor.sqlite
 AIMONITOR_FILE_EXPORTER_LOGS=./logs
@@ -40,7 +43,7 @@ AIMONITOR_OTEL_MCP_SPAN_PREFIX=mcp.tool
 
 ## YAML configuration
 
-AIMonitor accepts a nested exporter layout, including Kafka producer settings:
+AIMonitor accepts a nested exporter layout, including Kafka producer settings and internal SDK telemetry health checks:
 
 ```yaml
 app:
@@ -51,6 +54,11 @@ tracking:
   track_metrics: true
   track_events: true
   track_logs: true
+
+telemetry:
+  inner_telemetry: false
+  healthcheck_enabled: true
+  healthcheck_interval: 60
 
 exporters:
   prometheus:
@@ -101,6 +109,11 @@ await settings.load_from_yaml("config.yaml")
     "track_events": true,
     "track_logs": true
   },
+  "telemetry": {
+    "inner_telemetry": false,
+    "healthcheck_enabled": true,
+    "healthcheck_interval": 60
+  },
   "exporters": {
     "prometheus": {
       "enabled": true,
@@ -126,9 +139,19 @@ settings = get_settings()
 await settings.load_from_json("config.json")
 ```
 
-## Kafka-specific runtime fields
+## Runtime fields
 
-The config parser exposes the Kafka producer settings as runtime fields on `AIMonitorSettings`:
+The config parser exposes both exporter runtime settings and internal telemetry settings on `AIMonitorSettings`:
+
+### Internal telemetry
+
+- `inner_telemetry`
+- `healthcheck_enabled`
+- `healthcheck_interval`
+
+These control the SDK observability layer and the background exporter readiness loop.
+
+### Kafka exporter
 
 - `kafka_enabled`
 - `kafka_bootstrap_servers`
