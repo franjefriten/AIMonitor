@@ -57,6 +57,10 @@ class InternalTelemetryManager:
         if self.enabled:
             self._initialize_otel()
 
+    def reset(self) -> None:
+        """Reset internal telemetry to the current settings without replacing the manager."""
+        self.configure()
+
     def _initialize_otel(self) -> None:
         """Checks and loads OpenTelemetry dynamically and securely."""
         try:
@@ -266,3 +270,15 @@ def configure_internal_telemetry(enabled: Optional[bool] = None, service_name: O
     """
     internal_telemetry_manager.configure(enabled=enabled, service_name=service_name)
     return internal_telemetry_manager
+
+
+async def get_liveness() -> Dict[str, str]:
+    """Return a lightweight process liveness response without probing exporters."""
+    return {"status": "alive"}
+
+
+async def get_readiness() -> Dict[str, Any]:
+    """Return the current health status of all registered exporters."""
+    from core.registry import registry
+
+    return await internal_telemetry_manager.get_system_health(list(registry.exporters))

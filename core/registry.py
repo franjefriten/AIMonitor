@@ -91,6 +91,11 @@ class ExporterRegistry:
         self._exporters.append(exporter)
         self._start_healthcheck_worker()
 
+    @property
+    def exporters(self) -> tuple[BaseExporter, ...]:
+        """Return a read-only snapshot of the registered exporters."""
+        return tuple(self._exporters)
+
     async def dispatch(self, events: List[BaseSignal] | BaseSignal):
         if not self._ensure_queue_exists():
             logger.error("Queue does not exist, aborting the dispatch!")

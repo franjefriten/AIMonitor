@@ -301,6 +301,16 @@ class AIMonitorSettings(BaseSettings):
         validation_alias=AliasChoices(*_HEALTHCHECK_INTERVAL_ALIASES),
     )
 
+    def reset(self) -> None:
+        """Restore defaults and current environment values in-place.
+
+        Keeping the same object identity is important because several runtime
+        modules keep a reference to the settings singleton.
+        """
+        fresh_settings = type(self)()
+        self.__dict__.clear()
+        self.__dict__.update(fresh_settings.__dict__)
+
     # OpenTelemetry exporter for monitored MCP events (separate from SDK internal telemetry)
     otel_enabled: bool = Field(
         default=False,

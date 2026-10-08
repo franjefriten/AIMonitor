@@ -1,9 +1,20 @@
 from exporters.base import BaseExporter, with_retry
 from core.event import MCPEvent, BaseSignal, SignalType, HealthCheckEvent, HealthStatus
 from core.registry import registry
+from telemetry.api import get_liveness, get_readiness
 
 import pytest
 import asyncio
+
+
+@pytest.mark.asyncio
+async def test_healthcheck_api_returns_liveness_and_empty_readiness():
+    assert await get_liveness() == {"status": "alive"}
+
+    readiness = await get_readiness()
+
+    assert readiness["status"] == "empty"
+    assert readiness["summary"]["total_exporters"] == 0
 
 
 @pytest.mark.asyncio
@@ -28,15 +39,12 @@ async def test_health_check_event_emission():
                 "timestamp": "2023-01-01T12:00:00Z"
             }
 
-    registry.register(exporter=SpyExporter())
-
-    # Create an instance of the exporter to test
-    exporter = registry._exporters[0]
+    # Test the exporter healthcheck directly so the registry worker does not
+    # produce a second event in parallel.
+    exporter = SpyExporter()
 
     # Perform the health check
-    await exporter.health_check()
-
-    await asyncio.sleep(0.3)
+    await exporter.healthcheck()
 
     # Check that a HealthCheckEvent was emitted
     assert len(captured) == 1

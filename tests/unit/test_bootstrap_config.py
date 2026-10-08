@@ -78,6 +78,32 @@ exporters:
 
 
 @pytest.mark.asyncio
+async def test_settings_reset_restores_defaults_after_file_load(tmp_path):
+    config_path = tmp_path / "loaded.yaml"
+    config_path.write_text(
+        """
+exporters:
+  prometheus:
+    enabled: true
+    url: "http://loaded-host:9000"
+telemetry:
+  healthcheck_interval: 15
+""".strip()
+    )
+
+    settings = AIMonitorSettings()
+    await settings.load_from_yaml(config_path)
+    assert settings.prometheus_enabled is True
+    assert settings.healthcheck_interval == 15
+
+    settings.reset()
+
+    assert settings.prometheus_enabled is False
+    assert settings.prometheus_url is None
+    assert settings.healthcheck_interval == 60
+
+
+@pytest.mark.asyncio
 async def test_initialize_monitor_reads_internal_telemetry_healthcheck_settings(tmp_path):
     config_path = tmp_path / "telemetry_aimonitor.yaml"
     config_path.write_text(

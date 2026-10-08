@@ -15,6 +15,7 @@ async def initialize_monitor(config_path: str | Path | None = None) -> AIMonitor
     settings = get_settings()
 
     await registry.shutdown()
+    settings.reset()
 
     if config_path is not None:
         path = Path(config_path)
@@ -22,6 +23,9 @@ async def initialize_monitor(config_path: str | Path | None = None) -> AIMonitor
             await settings.load_from_yaml(path)
         elif path.suffix.lower() == ".json":
             await settings.load_from_json(path)
+
+    from telemetry.api import internal_telemetry_manager
+    internal_telemetry_manager.reset()
 
     exporters = []
 
