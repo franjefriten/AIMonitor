@@ -11,11 +11,11 @@ from telemetry.api import internal_telemetry_manager
 @pytest_asyncio.fixture(autouse=True)
 async def reset_runtime_singletons():
     """Start each test with a clean registry, settings singleton, and telemetry manager."""
-    await registry.shutdown()
+    await registry.reset()
     get_settings().reset()
     internal_telemetry_manager.reset()
     yield
-    await registry.shutdown()
+    await registry.reset()
 
 
 def _generate_mcp_event():

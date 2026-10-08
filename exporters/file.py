@@ -117,14 +117,6 @@ class FileExporter(BaseExporter):
             logger.error(f"Health check failed for FileExporter: {e}")
             success = False
 
-        from telemetry.api import internal_telemetry_manager
-        internal_telemetry_manager.track_healthcheck(
-            "FileExporter",
-            success,
-            "Health check passed for FileExporter." if success else f"Health check failed for FileExporter: {e if 'e' in locals() else ''}",
-            {"path": str(self.base_uri)}
-        )
-
         if success:
             logger.info("Health check passed for FileExporter.")
         else:

@@ -80,13 +80,6 @@ class PrometheusExporter(BaseExporter):
             success = False
             error_message = str(e)
 
-        from telemetry.api import internal_telemetry_manager
-        internal_telemetry_manager.track_healthcheck(
-            "PrometheusExporter",
-            success,
-            "Health check passed for PrometheusExporter." if success else f"Health check failed for PrometheusExporter: {error_message}",
-            {"address": self.address, "port": self.port},
-        )
         return success
 
     async def status(self) -> dict:

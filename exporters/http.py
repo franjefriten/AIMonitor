@@ -53,14 +53,6 @@ class WebhookExporter(HTTPBaseExporter):
             success = False
             error_message = str(e)
 
-        from telemetry.api import internal_telemetry_manager
-        internal_telemetry_manager.track_healthcheck(
-            "WebhookExporter",
-            success,
-            "Health check passed for WebhookExporter." if success else f"Health check failed for WebhookExporter: {error_message}",
-            {"url": self.url}
-        )
-
         if success:
             logger.info("Health check passed for WebhookExporter.")
         else:

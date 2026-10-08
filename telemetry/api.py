@@ -5,14 +5,8 @@ from enum import Enum
 from typing import Optional, Dict, Any
 from utils.logger import logger
 from configs.config import get_settings
+from core.event import SDKHealthStatus
 
-
-class SDKHealthStatus(str, Enum):
-    """Aggregate health state for the internal SDK health layer."""
-    HEALTHY = "healthy"
-    DEGRADED = "degraded"
-    UNHEALTHY = "unhealthy"
-    EMPTY = "empty"
 
 class InternalTelemetryManager:
     """
@@ -278,7 +272,8 @@ async def get_liveness() -> Dict[str, str]:
 
 
 async def get_readiness() -> Dict[str, Any]:
-    """Return the current health status of all registered exporters."""
+    """Return the latest cached health snapshot without probing exporters."""
     from core.registry import registry
 
-    return await internal_telemetry_manager.get_system_health(list(registry.exporters))
+    snapshot = await registry.health_snapshot()
+    return snapshot.model_dump(mode="json")

@@ -9,7 +9,9 @@ from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponen
 import httpx
 from pathlib import Path
 from configs.config import get_settings
-
+from datetime import UTC, datetime
+from core.event import HealthCheckSnapshot, HealthStatus
+from telemetry.api import internal_telemetry_manager
 
 settings = get_settings()
 
@@ -44,6 +46,62 @@ class BaseExporter(ABC):
     async def close(self) -> None:
         """Optional lifecycle hook for exporters that require cleanup."""
         return None
+    
+    async def _healthcheck(self) -> HealthCheckSnapshot:
+        """Run a user healthcheck and add the SDK health instrumentation."""
+        started_at = datetime.now(UTC)
+        exporter_name = self.__class__.__name__
+
+        try:
+            result = await self.healthcheck()
+            healthy = bool(result)
+            finished_at = datetime.now(UTC)
+
+            snapshot = HealthCheckSnapshot(
+                exporter_name=exporter_name,
+                status=(
+                    HealthStatus.HEALTHY
+                    if healthy
+                    else HealthStatus.DOWN
+                ),
+                last_check_started_at=started_at,
+                last_check_finished_at=finished_at,
+                last_success_at=finished_at if healthy else None,
+                last_failure_at=finished_at if not healthy else None,
+                consecutive_failures=0 if healthy else 1,
+                consecutive_successes=1 if healthy else 0,
+                message=(
+                    "Exporter healthcheck passed."
+                    if healthy
+                    else "Exporter healthcheck returned false."
+                ),
+            )
+
+            internal_telemetry_manager.track_healthcheck(
+                exporter_name=exporter_name,
+                healthy=healthy,
+                message=snapshot.message,
+            )
+
+            return snapshot
+
+        except Exception as exc:
+            finished_at = datetime.now(UTC)
+            snapshot = HealthCheckSnapshot(
+                exporter_name=exporter_name,
+                status=HealthStatus.FAILURE,
+                last_check_started_at=started_at,
+                last_check_finished_at=finished_at,
+                last_failure_at=finished_at,
+                consecutive_failures=1,
+                message=str(exc),
+            )
+            internal_telemetry_manager.track_healthcheck(
+                exporter_name=exporter_name,
+                healthy=False,
+                message=snapshot.message,
+            )
+            return snapshot
 
     @abstractmethod    
     async def healthcheck(self) -> bool:

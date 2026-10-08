@@ -136,14 +136,6 @@ class KafkaExporter(BaseExporter):
             success = False
             error_message = str(e)
 
-        from telemetry.api import internal_telemetry_manager
-        internal_telemetry_manager.track_healthcheck(
-            "KafkaExporter",
-            success,
-            "Health check passed for KafkaExporter." if success else f"Health check failed for KafkaExporter: {error_message}",
-            {"topic": "aimonitor-healthcheck"},
-        )
-
         if success:
             logger.info("Health check passed for KafkaExporter.")
         else:

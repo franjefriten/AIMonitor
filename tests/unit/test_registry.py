@@ -1,6 +1,7 @@
 import pytest
 
 from exporters.base import BaseExporter
+from core.event import HealthStatus
 from core.registry import ExporterRegistry, registry
 from tests.conftest import _generate_mcp_event
 
@@ -78,3 +79,33 @@ async def test_exporter_auto_removal_on_failure():
     await asyncio.sleep(3)
 
     assert len(registry._exporters) == 0
+
+
+@pytest.mark.asyncio
+async def test_registry_tracks_export_failure_and_shutdown_status():
+    class FailingExporter(BaseExporter):
+        async def export_batch(self, event_batch):
+            raise ConnectionError("Service Down")
+
+        async def healthcheck(self):
+            return True
+
+        async def status(self):
+            return {"status": "healthy"}
+
+    exporter = FailingExporter()
+    registry.register(exporter)
+
+    await registry._send_batch([_generate_mcp_event()])
+    snapshot = await registry.health_snapshot()
+    exporter_snapshot = next(iter(snapshot.exporters.values()))
+
+    assert exporter_snapshot.status == HealthStatus.FAILURE
+    assert snapshot.summary["failure_count"] == 1
+    assert len(registry.exporters) == 1
+
+    await registry.shutdown()
+    snapshot = await registry.health_snapshot()
+    exporter_snapshot = next(iter(snapshot.exporters.values()))
+
+    assert exporter_snapshot.status == HealthStatus.STOPPED

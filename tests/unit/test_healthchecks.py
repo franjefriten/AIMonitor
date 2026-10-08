@@ -1,7 +1,14 @@
 from exporters.base import BaseExporter, with_retry
-from core.event import MCPEvent, BaseSignal, SignalType, HealthCheckEvent, HealthStatus
+from core.event import (
+    MCPEvent,
+    BaseSignal,
+    SignalType,
+    HealthCheckEvent,
+    HealthCheckSnapshot,
+    HealthStatus,
+)
 from core.registry import registry
-from telemetry.api import get_liveness, get_readiness
+from telemetry.api import get_liveness, get_readiness, internal_telemetry_manager
 
 import pytest
 import asyncio
@@ -51,3 +58,35 @@ async def test_health_check_event_emission():
     event = captured[0]
     assert isinstance(event, HealthCheckEvent)
     assert event.status == HealthStatus.HEALTHY
+
+
+@pytest.mark.asyncio
+async def test_base_healthcheck_wraps_custom_healthcheck_and_emits_telemetry(monkeypatch):
+    captured = []
+
+    class CustomExporter(BaseExporter):
+        async def export_batch(self, event_batch):
+            pass
+
+        async def healthcheck(self):
+            return True
+
+        async def status(self):
+            return {"status": "healthy"}
+
+    monkeypatch.setattr(
+        internal_telemetry_manager,
+        "track_healthcheck",
+        lambda **payload: captured.append(payload),
+    )
+
+    snapshot = await CustomExporter()._healthcheck()
+
+    assert isinstance(snapshot, HealthCheckSnapshot)
+    assert snapshot.status == HealthStatus.HEALTHY
+    assert snapshot.consecutive_successes == 1
+    assert captured == [{
+        "exporter_name": "CustomExporter",
+        "healthy": True,
+        "message": "Exporter healthcheck passed.",
+    }]
