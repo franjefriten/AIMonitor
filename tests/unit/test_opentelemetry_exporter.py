@@ -110,3 +110,21 @@ def test_opentelemetry_exporter_exports_batch_to_multiple_spans(_):
         asyncio.run(exporter.export_batch(events))
 
     assert len(fake_tracer.started_spans) == 2
+
+
+@patch("os.getenv", return_value="false")
+def test_opentelemetry_exporter_healthcheck_and_status_are_consistent(_):
+    fake_module, fake_tracer = _build_fake_opentelemetry_module()
+
+    with patch.dict("sys.modules", {"opentelemetry": fake_module}):
+        exporter = OpenTelemetryExporter(enabled=True, service_name="health-service", span_prefix="mcp.health")
+
+        import asyncio
+        healthy = asyncio.run(exporter.healthcheck())
+        status = asyncio.run(exporter.status())
+
+    assert healthy is True
+    assert status["status"] == "healthy"
+    assert status["service_name"] == "health-service"
+    assert status["enabled"] is True
+    assert len(fake_tracer.started_spans) >= 1

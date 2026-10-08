@@ -13,6 +13,14 @@ async def test_exporter_on_successful_events_batches():
             return await super().export(event)
         async def export_batch(self, event_batch):
             return await super().export_batch(event_batch)
+        async def healthcheck(self):
+            return True
+        async def status(self):
+            return {
+                "status": "healthy",
+                "message": "Exporter is healthy and connected to the destination.",
+                "timestamp": "2023-01-01T12:00:00Z"
+            }
         
     total_events = 20
     tool_names = ["some_tool", "some_other_tool", "another_tool"]
@@ -43,10 +51,17 @@ async def test_exporter_on_successful_events_batches():
 @pytest.mark.asyncio
 async def test_exporter_auto_removal_on_failure():
     class FailingExporter(BaseExporter):
-        async def export():
+        async def export(self, event):
             raise ConnectionError("Service Down")
+
         async def export_batch(self, event_batch):
             raise ConnectionError("Service Down")
+
+        async def healthcheck(self):
+            return False
+
+        async def status(self):
+            return {"status": "unhealthy", "message": "Service Down"}
 
     event1 = _generate_mcp_event()
 

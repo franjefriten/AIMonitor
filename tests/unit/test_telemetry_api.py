@@ -130,3 +130,66 @@ def test_configure_internal_telemetry_reuses_meter_counters():
 
     counter = fake_meter.counters["metric.sample"]
     assert counter.calls == [(1, {}), (2, {})]
+
+
+def test_track_healthcheck_reports_exporter_state_to_internal_telemetry():
+    fake_module, fake_tracer, _ = _build_fake_opentelemetry_module()
+
+    with patch.dict("sys.modules", {"opentelemetry": fake_module}):
+        manager = configure_internal_telemetry(enabled=True, service_name="test-service")
+        manager.track_healthcheck("KafkaExporter", True, "Broker reachable", {"topic": "aimonitor-healthcheck"})
+
+    assert manager.enabled is True
+    assert len(fake_tracer.started_spans) == 1
+    event_name, span = fake_tracer.started_spans[0]
+    assert event_name == "sdk.exporter.healthcheck"
+    assert span.attributes["exporter_name"] == "KafkaExporter"
+    assert span.attributes["healthy"] is True
+    assert span.attributes["message"] == "Broker reachable"
+    assert span.attributes["topic"] == "aimonitor-healthcheck"
+
+
+def test_track_system_health_snapshot_reports_summary_for_all_exporters():
+    fake_module, _, _ = _build_fake_opentelemetry_module()
+
+    class HealthyExporter:
+        async def status(self):
+            return {"status": "healthy", "message": "ok"}
+
+    class UnhealthyExporter:
+        async def status(self):
+            return {"status": "unhealthy", "message": "down"}
+
+    with patch.dict("sys.modules", {"opentelemetry": fake_module}):
+        manager = configure_internal_telemetry(enabled=True, service_name="test-service")
+        import asyncio
+        snapshot = asyncio.run(manager.track_system_health_snapshot_async([HealthyExporter(), UnhealthyExporter()]))
+
+    assert snapshot["total_exporters"] == 2
+    assert snapshot["healthy_count"] == 1
+    assert snapshot["unhealthy_count"] == 1
+    assert snapshot["status"] == "degraded"
+    assert snapshot["exporters"][0]["name"] == "HealthyExporter"
+    assert snapshot["exporters"][1]["status"] == "unhealthy"
+
+
+def test_get_system_health_uses_explicit_sdk_health_enum():
+    fake_module, _, _ = _build_fake_opentelemetry_module()
+
+    class HealthyExporter:
+        async def status(self):
+            return {"status": "healthy", "message": "ok"}
+
+    class UnhealthyExporter:
+        async def status(self):
+            return {"status": "unhealthy", "message": "down"}
+
+    with patch.dict("sys.modules", {"opentelemetry": fake_module}):
+        manager = configure_internal_telemetry(enabled=True, service_name="test-service")
+        import asyncio
+        health = asyncio.run(manager.get_system_health([HealthyExporter(), UnhealthyExporter()]))
+
+    assert health["status"] == "degraded"
+    assert health["summary"]["healthy_count"] == 1
+    assert health["summary"]["unhealthy_count"] == 1
+    assert health["overall"] in {"healthy", "degraded", "unhealthy", "empty"}

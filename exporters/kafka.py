@@ -6,12 +6,12 @@ except ImportError as e:
     )
    
 from exporters.base import BaseExporter, with_retry
-from core.event import MCPEvent
+from core.event import MCPEvent, BaseSignal, SignalType, HealthCheckEvent, HealthStatus
 
 import socket
 import hashlib
 import json
-from typing import List, Optional
+from typing import List, Optional, Literal
 import string
 
 from configs.config import get_settings
@@ -36,7 +36,7 @@ class KafkaExporter(BaseExporter):
 
     def __init__(
             self, 
-            topic: str = "aimonitor-events", 
+            #topics: List[Literal["aimonitor-events", "aimonitor-metrics", "aimonitor-spans", "aimonitor-logs"]] = ["aimonitor-events"],
             kafka_configs: dict = settings.get_kafka_config(),
             max_workers: int = 5,
             batch_size: int = 10,
@@ -44,13 +44,14 @@ class KafkaExporter(BaseExporter):
         ):
         super().__init__()
         self.kafka_configs = kafka_configs
-        self.topic = topic
+        #self.topics = topics
         try:
             self.producer = AIOProducer(
                 producer_conf=self.kafka_configs,
                 max_workers=max_workers,
                 batch_size=batch_size,
                 buffer_timeout=buffer_timeout,
+                acks=self.kafka_configs.get("acks", "all")
             )
             logger.info("Kafka producer initialized correctly")
         except Exception:
@@ -73,14 +74,29 @@ class KafkaExporter(BaseExporter):
         """
         return _encode_partition_key(tool_name)
 
-    async def export_batch(self, events: List[MCPEvent]):
-        for event in events:
+    @with_retry
+    async def export_batch(self, events: List[BaseSignal]) -> None:
+        while events:
+            event = events[0]
             event_data = json.dumps(event.model_dump_json()).encode("utf-8")
             key = self._encode_partition_key(event.tool_name)
+            match event.signal_type:
+                case SignalType.EVENT:
+                    topic = "aimonitor-events"
+                case SignalType.METRIC:
+                    topic = "aimonitor-metrics"
+                case SignalType.SPAN:
+                    topic = "aimonitor-spans"
+                case SignalType.LOG:
+                    topic = "aimonitor-logs"
+                case _:
+                    logger.warning(f"Unknown signal type: {event.signal_type}, skipping export")
+                    events.pop(0)
+                    continue
 
             try:
                 await self.producer.produce(
-                    topic=self.topic,
+                    topic=topic,
                     key=key,
                     value=event_data,
                     callback=self._report_delivery,
@@ -91,7 +107,64 @@ class KafkaExporter(BaseExporter):
                 await self.producer.flush()
             except Exception as exc:
                 logger.error(f"Unexpected error happened: {repr(exc)}")
+            else:
+                events.pop(0)
 
     async def close(self) -> None:
         logger.info("Closing kafka producer and flushing queue...")
         await self.producer.flush()
+
+    
+    async def healthcheck(self) -> bool:
+        """
+        Health check for the KafkaExporter. This exporter is considered healthy if it can connect to the Kafka broker.
+        """
+        success = True
+        error_message = ""
+        try:
+            # Attempt to produce a test message to the Kafka broker
+            test_message = json.dumps({"healthcheck": "test"}).encode("utf-8")
+            await self.producer.produce(
+                topic="aimonitor-healthcheck",
+                key=b"healthcheck",
+                value=test_message,
+                callback=self._report_delivery,
+            )
+            await self.producer.flush()
+        except Exception as e:
+            logger.error(f"Health check failed for KafkaExporter: {e}")
+            success = False
+            error_message = str(e)
+
+        from telemetry.api import internal_telemetry_manager
+        internal_telemetry_manager.track_healthcheck(
+            "KafkaExporter",
+            success,
+            "Health check passed for KafkaExporter." if success else f"Health check failed for KafkaExporter: {error_message}",
+            {"topic": "aimonitor-healthcheck"},
+        )
+
+        if success:
+            logger.info("Health check passed for KafkaExporter.")
+        else:
+            logger.error("Health check failed for KafkaExporter.")
+        return success
+    
+    async def status(self) -> dict:
+        """
+        Returns the status of the KafkaExporter, including the connection status and broker information.
+        """
+        try:
+            metadata = await self.producer.get_metadata(timeout=5.0)
+            return {
+                "status": "healthy",
+                "message": "KafkaExporter is operational.",
+                "brokers": [broker.host for broker in metadata.brokers.values()],
+                "topics": list(metadata.topics.keys()),
+            }
+        except Exception as e:
+            logger.error(f"Failed to retrieve Kafka metadata: {e}")
+            return {
+                "status": "unhealthy",
+                "message": f"Failed to retrieve Kafka metadata: {e}",
+            }

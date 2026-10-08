@@ -93,7 +93,7 @@ def monitor_tool(
                     error_message = result.get("error", "")
 
                 try:
-                    if settings.enabled and settings.track_events:
+                    if settings.tracking.enabled and settings.tracking.track_events:
                         logger.info(f"Emiting tool execution event for {func.__name__}")
                         await monitor.emit_tool_execution_event(
                             tool_name=func.__name__,
@@ -104,7 +104,7 @@ def monitor_tool(
                             delta=delta,
                             version=version
                         )
-                    if settings.enabled and settings.track_metrics and track_duration:
+                    if settings.tracking.enabled and settings.tracking.track_metrics and track_duration:
                         logger.info(f"Emiting tool metrics event for {func.__name__}")
                         await monitor.record_metric(
                             name="tool_execution_duration_seconds",
@@ -113,7 +113,7 @@ def monitor_tool(
                             labels={"tool_name": func.__name__, "status": status},
                             version=version
                         )
-                    if settings.enabled and settings.track_metrics and track_call_count:
+                    if settings.tracking.enabled and settings.tracking.track_metrics and track_call_count:
                         logger.info(f"Emiting tool metrics event for {func.__name__}")
                         await monitor.record_metric(
                             name="tool_execution_count",
@@ -158,7 +158,7 @@ async def record_log(
         message=message,
         level=level,
         metadata={**kwargs, "extra_data": args},
-        environment=settings.env_code,
+        environment=settings.app.env_code,
         version=version
     )
 
@@ -228,7 +228,7 @@ def track_tool_call_event(func: Callable) -> Callable:
                 status = "error"
                 error_message = result.get("error", "")
             try:
-                if settings.enabled and settings.track_events:
+                if settings.tracking.enabled and settings.tracking.track_events:
                     await monitor.emit_tool_execution_event(
                         tool_name=func.__name__,
                         args=safe_args,
@@ -314,21 +314,21 @@ def track_tool_metrics(
                     status = "error"
                     error_message = result.get("error", "")
                 try:
-                    if settings.enabled and settings.track_metrics and track_duration:
+                    if settings.tracking.enabled and settings.tracking.track_metrics and track_duration:
                         await monitor.record_metric(
                             name="tool_execution_duration_seconds",
                             value=delta,
                             metric_type="histogram",
                             labels={"tool_name": func.__name__, "status": status},
-                            environment=settings.env_code
+                            environment=settings.app.env_code
                         )
-                    if settings.enabled and settings.track_metrics and track_call_count:
+                    if settings.tracking.enabled and settings.tracking.track_metrics and track_call_count:
                         await monitor.record_metric(
                             name="tool_execution_count",
                             value=1,
                             metric_type="counter",
                             labels={"tool_name": func.__name__, "status": status},
-                            environment=settings.env_code
+                            environment=settings.app.env_code
                         )
                     logger.info(f"Tool '{func.__name__}' monitored in {delta:.4f}s")
                 except Exception as registry_err:

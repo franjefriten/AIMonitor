@@ -1,8 +1,18 @@
 import sys
 import os
+import asyncio
+from enum import Enum
 from typing import Optional, Dict, Any
 from utils.logger import logger
 from configs.config import get_settings
+
+
+class SDKHealthStatus(str, Enum):
+    """Aggregate health state for the internal SDK health layer."""
+    HEALTHY = "healthy"
+    DEGRADED = "degraded"
+    UNHEALTHY = "unhealthy"
+    EMPTY = "empty"
 
 class InternalTelemetryManager:
     """
@@ -17,7 +27,7 @@ class InternalTelemetryManager:
         service_name: str = "aimonitor-sdk",
     ):
         settings = get_settings()
-        self.enabled = settings.inner_telemetry if enabled is None else enabled
+        self.enabled = settings.telemetry.inner_telemetry if enabled is None else enabled
         self.service_name = service_name
         self.tracer = None
         self.meter = None
@@ -34,7 +44,7 @@ class InternalTelemetryManager:
         - enabled=True: initialize OpenTelemetry if available.
         """
         settings = get_settings()
-        desired_enabled = settings.inner_telemetry if enabled is None else enabled
+        desired_enabled = settings.telemetry.inner_telemetry if enabled is None else enabled
 
         if service_name:
             self.service_name = service_name
@@ -92,6 +102,137 @@ class InternalTelemetryManager:
         except Exception as internal_error:
             # Absolute safety net: an internal telemetry failure never breaks the user's software
             sys.stderr.write(f"[SDK Telemetry Error] Failed to record event '{event_name}': {internal_error}\n")
+
+    def track_healthcheck(
+        self,
+        exporter_name: str,
+        healthy: bool,
+        message: str = "",
+        attributes: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """
+        Record an internal healthcheck result for a concrete exporter.
+
+        This is internal SDK observability, not a business-export event.
+        Health results must be emitted to the internal telemetry channel only.
+        """
+        if not self.enabled or not self.tracer:
+            return
+
+        payload = {
+            "exporter_name": exporter_name,
+            "healthy": bool(healthy),
+            "message": message,
+        }
+        if attributes:
+            payload.update(attributes)
+
+        try:
+            with self.tracer.start_as_current_span("sdk.exporter.healthcheck") as span:
+                for key, value in payload.items():
+                    if isinstance(value, (str, int, float, bool)) or value is None:
+                        span.set_attribute(str(key), value)
+                    else:
+                        span.set_attribute(str(key), str(value))
+        except Exception as internal_error:
+            sys.stderr.write(
+                f"[SDK Telemetry Error] Failed to record exporter healthcheck '{exporter_name}': {internal_error}\n"
+            )
+
+    async def track_system_health_snapshot_async(self, exporters: list) -> Dict[str, Any]:
+        """
+        Build a health summary for the active exporters and emit it to the internal telemetry
+        channel as a single SDK-internal signal.
+        """
+        snapshot = {
+            "total_exporters": 0,
+            "healthy_count": 0,
+            "unhealthy_count": 0,
+            "status": "healthy",
+            "exporters": [],
+        }
+
+        for exporter in exporters:
+            exporter_name = exporter.__class__.__name__
+            status_payload = {"status": "unhealthy", "message": "status unavailable"}
+            try:
+                maybe_status = exporter.status()
+                if hasattr(maybe_status, "__await__"):
+                    status_payload = await maybe_status
+                else:
+                    status_payload = maybe_status
+                if not isinstance(status_payload, dict):
+                    status_payload = {"status": "unhealthy", "message": str(status_payload)}
+            except Exception as exc:
+                status_payload = {"status": "unhealthy", "message": str(exc)}
+
+            raw_status = status_payload.get("status", "unhealthy")
+            if hasattr(raw_status, "value"):
+                raw_status = raw_status.value
+            exporter_entry = {
+                "name": exporter_name,
+                "status": str(raw_status).lower(),
+                "message": status_payload.get("message", ""),
+                "details": status_payload,
+            }
+            snapshot["exporters"].append(exporter_entry)
+            snapshot["total_exporters"] += 1
+
+            if exporter_entry["status"] == "healthy":
+                snapshot["healthy_count"] += 1
+            else:
+                snapshot["unhealthy_count"] += 1
+
+        if snapshot["unhealthy_count"] > 0:
+            snapshot["status"] = "degraded" if snapshot["healthy_count"] > 0 else "unhealthy"
+        elif snapshot["total_exporters"] == 0:
+            snapshot["status"] = "empty"
+
+        self.track_event(
+            "sdk.exporter.health.snapshot",
+            {
+                "total_exporters": snapshot["total_exporters"],
+                "healthy_count": snapshot["healthy_count"],
+                "unhealthy_count": snapshot["unhealthy_count"],
+                "status": snapshot["status"],
+            },
+        )
+        return snapshot
+
+    def track_system_health_snapshot(self, exporters: list) -> Dict[str, Any]:
+        """Convenience sync wrapper for non-async callers."""
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(self.track_system_health_snapshot_async(exporters))
+
+        raise RuntimeError("Use 'await track_system_health_snapshot_async(exporters)' when running in an event loop.")
+
+    async def get_system_health(self, exporters: list) -> Dict[str, Any]:
+        """
+        Return a structured SDK health snapshot built from exporter status payloads.
+        This is the canonical internal API for SDK health readout and can be consumed by
+        operators, debugging tools, or the registry health loop.
+        """
+        snapshot = await self.track_system_health_snapshot_async(exporters)
+        overall = SDKHealthStatus.HEALTHY.value
+        if snapshot["status"] == "degraded":
+            overall = SDKHealthStatus.DEGRADED.value
+        elif snapshot["status"] == "unhealthy":
+            overall = SDKHealthStatus.UNHEALTHY.value
+        elif snapshot["status"] == "empty":
+            overall = SDKHealthStatus.EMPTY.value
+
+        return {
+            "status": overall,
+            "overall": overall,
+            "summary": {
+                "total_exporters": snapshot["total_exporters"],
+                "healthy_count": snapshot["healthy_count"],
+                "unhealthy_count": snapshot["unhealthy_count"],
+            },
+            "exporters": snapshot["exporters"],
+        }
 
     def track_metric_counter(self, metric_name: str, value: int = 1, attributes: Optional[Dict[str, Any]] = None) -> None:
         """

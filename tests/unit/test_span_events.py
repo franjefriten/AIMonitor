@@ -18,6 +18,12 @@ async def test_emit_span_event():
 
         async def export_batch(self, event_batch):
             captured.extend(event_batch)
+        
+        async def healthcheck(self):
+            pass
+
+        async def status(self):
+            pass
 
     registry.register(exporter=SpyExporter())
 
@@ -58,6 +64,12 @@ async def test_emit_multi_span_event():
 
         async def export_batch(self, event_batch):
             captured.extend(event_batch)
+
+        async def healthcheck(self):
+            pass
+
+        async def status(self):
+            pass
 
     registry.register(exporter=SpyExporter())
 

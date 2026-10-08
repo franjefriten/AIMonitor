@@ -1,99 +1,95 @@
 # Configuration Guide
 
-AIMonitor uses environment variables, `.env` files, YAML, or JSON configuration to customize behavior.
+AIMonitor loads configuration from environment variables, `.env` files, YAML files, and JSON files. The runtime model is defined in `AIMonitorSettings`, and exporter registration is handled by the async bootstrap function.
+
+## Runtime bootstrap
+
+Use the async bootstrap instead of calling sync helpers from inside the active event loop:
+
+```python
+from bootstrap import initialize_monitor
+
+async def main():
+    settings = await initialize_monitor("config.yaml")
+  print(settings.exporters.prometheus.enabled, settings.exporters.kafka.enabled)
+```
+
+The `initialize_monitor()` function:
+
+1. Loads the config file into `AIMonitorSettings`
+2. Applies environment variables with highest precedence
+3. Registers only the exporters that are enabled in the config
+4. Returns the settings instance for runtime use
 
 ## Environment variables
 
-All settings can be set via environment variables with the `AIMONITOR_` prefix.
-
-### Core settings
+All settings accept the `AIMONITOR_` prefix. Common examples:
 
 ```bash
-# Enable/disable monitoring
-AIMONITOR_ENABLED=true
-
-# Enable internal SDK telemetry
-AIMONITOR_INNER_TELEMETRY=false
-
-# Environment (ENV, STG, PRO)
 AIMONITOR_ENV=ENV
-
-# Sensitive keys to redact
-AIMONITOR_SENSITIVE_KEYS=password,token,api_key,secret
-```
-
-### Export settings
-
-```bash
-# Prometheus endpoint
-AIMONITOR_PROMETHEUS_URL=http://localhost:9000
-
-# SQLite database path
-AIMONITOR_SQLITE_URI=./aimonitor.sqlite
-
-# File exporter logs directory
-AIMONITOR_FILE_EXPORTER_LOGS=./logs
-
-# Max file size in MB
-AIMONITOR_MAX_MB_PER_FILE=10.0
-
-# Retry policy count
-AIMONITOR_RETRIES_POLICY=3
-```
-
-### Event tracking
-
-```bash
-# Track metrics
 AIMONITOR_TRACK_METRICS=true
-
-# Track events
 AIMONITOR_TRACK_EVENTS=true
-
-# Track logs
 AIMONITOR_TRACK_LOGS=true
-```
-
-### OpenTelemetry MCP exporter
-
-```bash
-# Enable OTel export for MCP events
+AIMONITOR_INNER_TELEMETRY=false
+AIMONITOR_HEALTHCHECK_ENABLED=true
+AIMONITOR_HEALTHCHECK_INTERVAL=60
+AIMONITOR_PROMETHEUS_URL=http://localhost:9000
+AIMONITOR_SQLITE_URI=./aimonitor.sqlite
+AIMONITOR_FILE_PATH=./logs
+AIMONITOR_MAX_MB_PER_FILE=10.0
+AIMONITOR_RETRIES_POLICY=3
 AIMONITOR_OTEL_MCP_EXPORTER_ENABLED=true
-
-# Service name for OTel
 AIMONITOR_OTEL_MCP_SERVICE_NAME=my-service
-
-# Span name prefix
 AIMONITOR_OTEL_MCP_SPAN_PREFIX=mcp.tool
-
-# OTel collector endpoint (set globally)
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
-OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
 ```
 
-## Configuration files
+## YAML configuration
 
-### YAML configuration
-
-Create a `config.yaml`:
+AIMonitor accepts a nested exporter layout, including Kafka producer settings and internal SDK telemetry health checks:
 
 ```yaml
-enabled: true
-inner_telemetry: false
-env: ENV
-track_events: true
-track_metrics: true
-prometheus_url: "http://localhost:9000"
-sqlite_uri: "./aimonitor.sqlite"
-file_exporter_logs: "./logs"
-max_mb_per_file: 10.0
-retries_policy: 3
-otel_mcp_exporter_enabled: true
-otel_mcp_service_name: "my-service"
-otel_mcp_span_prefix: "mcp.tool"
+app:
+  env: ENV
+
+tracking:
+  enabled: true
+  track_metrics: true
+  track_events: true
+  track_logs: true
+
+telemetry:
+  inner_telemetry: false
+  healthcheck_enabled: true
+  healthcheck_interval: 60
+
+exporters:
+  prometheus:
+    enabled: true
+    url: "http://localhost:9000"
+
+  file:
+    enabled: true
+    file_path: "./tmp_runtime_logs"
+
+  otel:
+    enabled: true
+    service_name: "aimonitor-test"
+    span_prefix: "mcp.test"
+
+  kafka:
+    enabled: true
+    bootstrap_servers: "localhost:9092"
+    security_protocol: "SASL_SSL"
+    producer:
+      acks: "all"
+      retries: 3
+      linger_ms: 5
+      compression: "none"
+      batch_size: 2048
+      max_workers: 12
 ```
 
-Load it in your code:
+Then load it with:
 
 ```python
 from configs.config import get_settings
@@ -102,25 +98,41 @@ settings = get_settings()
 await settings.load_from_yaml("config.yaml")
 ```
 
-### JSON configuration
-
-Create a `config.json`:
+## JSON configuration
 
 ```json
 {
-  "enabled": true,
-  "inner_telemetry": false,
-  "env": "ENV",
-  "track_events": true,
-  "track_metrics": true,
-  "prometheus_url": "http://localhost:9000",
-  "sqlite_uri": "./aimonitor.sqlite",
-  "otel_mcp_exporter_enabled": true,
-  "otel_mcp_service_name": "my-service"
+  "app": {
+    "env": "ENV"
+  },
+  "tracking": {
+    "enabled": true,
+    "track_metrics": true,
+    "track_events": true,
+    "track_logs": true
+  },
+  "telemetry": {
+    "inner_telemetry": false,
+    "healthcheck_enabled": true,
+    "healthcheck_interval": 60
+  },
+  "exporters": {
+    "prometheus": {
+      "enabled": true,
+      "url": "http://localhost:9000"
+    },
+    "kafka": {
+      "enabled": true,
+      "bootstrap_servers": "localhost:9092",
+      "producer": {
+        "acks": "all",
+        "batch_size": 2048,
+        "max_workers": 12
+      }
+    }
+  }
 }
 ```
-
-Load it:
 
 ```python
 from configs.config import get_settings
@@ -129,64 +141,90 @@ settings = get_settings()
 await settings.load_from_json("config.json")
 ```
 
-### .env file
+## Runtime fields
 
-Create a `.env` file in your project root:
+The configuration is organized into `app`, `tracking`, `telemetry`, and `exporters` sections. These nested sections are the runtime source of truth.
 
-```env
-AIMONITOR_ENABLED=true
-AIMONITOR_INNER_TELEMETRY=false
-AIMONITOR_PROMETHEUS_URL=http://localhost:9000
-AIMONITOR_OTEL_MCP_EXPORTER_ENABLED=true
-AIMONITOR_OTEL_MCP_SERVICE_NAME=my-service
-```
+## Default values
 
-Python will automatically load `.env` via `python-dotenv`.
+The most relevant defaults are:
+
+| Section | Setting | Default |
+| --- | --- | --- |
+| `app` | `env` | `ENV` |
+| `app` | `logger_level` | `INFO` |
+| `tracking` | `enabled` | `true` |
+| `tracking` | `track_metrics` | `true` |
+| `tracking` | `track_events` | `true` |
+| `tracking` | `track_logs` | `true` |
+| `telemetry` | `inner_telemetry` | `false` |
+| `telemetry` | `healthcheck_enabled` | `true` |
+| `telemetry` | `healthcheck_interval` | `60` seconds |
+| `security` | `sensitive_keys` | password, token, api_key, secret, and other credential names |
+| `exporters.redis` | `enabled` | `false` |
+| `exporters.redis` | `url` | `null` |
+| `exporters.mongodb` | `enabled` | `false` |
+| `exporters.mongodb` | `url` | `null` |
+| `exporters.postgres` | `enabled` | `false` |
+| `exporters.postgres` | `url` | `null` |
+| `exporters.prometheus` | `enabled` | `false` |
+| `exporters.prometheus` | `url` | `null` |
+| `exporters.kafka` | `enabled` | `false` |
+| `exporters.kafka` | `security_protocol` | `null` |
+| `exporters.kafka` | `auto_offset_reset` | `null` |
+| `exporters.kafka` | `group_id` | `aimonitor-group` |
+| `exporters.kafka` | `buffer_timeout` | `null` in settings, `1.0` seconds at bootstrap |
+| `exporters.kafka.producer` | `acks` | `all` |
+| `exporters.kafka.producer` | `retries` | `3` |
+| `exporters.kafka.producer` | `linger_ms` | `5` |
+| `exporters.kafka.producer` | `compression` | `none` |
+| `exporters.kafka.producer` | `max_workers` | `5` at bootstrap |
+| `exporters.kafka.producer` | `batch_size` | `10` at bootstrap |
+| `exporters.file` | `enabled` | `false` |
+| `exporters.file` | `path` | `./logs` |
+| `exporters.file` | `max_mb_per_file` | `10.0` |
+| `exporters.sqlite` | `enabled` | `false` |
+| `exporters.sqlite` | `uri` | `null` |
+| `exporters.otel` | `enabled` | `false` |
+| `exporters.otel` | `service_name` | `aimonitor-mcp` |
+| `exporters.otel` | `span_prefix` | `mcp.tool` |
+
+The exporter constructors also have explicit standalone defaults. Bootstrap passes the configured values when an exporter is initialized.
+
+### Internal telemetry
+
+- `telemetry.inner_telemetry`
+- `telemetry.healthcheck_enabled`
+- `telemetry.healthcheck_interval`
+
+These control the SDK observability layer and the background exporter readiness loop.
+
+### Kafka exporter
+
+- `exporters.kafka.enabled`
+- `exporters.kafka.bootstrap_servers`
+- `exporters.kafka.producer.acks`
+- `exporters.kafka.producer.retries`
+- `exporters.kafka.producer.max_workers`
+- `exporters.kafka.producer.batch_size`
+- `exporters.kafka.buffer_timeout`
+- `exporters.kafka.producer.linger_ms`
+
+`get_kafka_config()` builds the exact dict expected by the Confluent Kafka producer.
 
 ## Configuration precedence
 
-Settings are loaded in this order (later overrides earlier):
+Settings are applied in this order (highest to lowest priority):
 
-1. Hardcoded defaults in `AIMonitorSettings`
-2. Environment variables
-3. `.env` file
-4. Runtime `load_from_yaml()` or `load_from_json()`
-5. Explicit constructor arguments
+1. **Environment variables** (`AIMONITOR_*` prefix)
+2. Runtime values from `load_from_yaml()` / `load_from_json()`
+3. Built-in defaults in `AIMonitorSettings`
 
-## Example: Full setup
-
-```python
-from configs.config import get_settings
-from exporters.file import FileExporter
-from exporters.prometheus import PrometheusExporter
-from exporters.opentelemetry import OpenTelemetryExporter
-from core.registry import registry
-
-# Load settings
-settings = get_settings()
-
-# File exporter
-file_exp = FileExporter(base_uri="./logs", max_bytes=10_000_000)
-await file_exp.connect()
-registry.register(file_exp)
-
-# Prometheus exporter
-if settings.track_metrics:
-    prom_exp = PrometheusExporter()
-    await prom_exp.connect()
-    registry.register(prom_exp)
-
-# OpenTelemetry exporter
-if settings.otel_mcp_exporter_enabled:
-    otel_exp = OpenTelemetryExporter()
-    registry.register(otel_exp)
-
-print("✅ AIMonitor configured and ready!")
-```
+Environment variables always override file-based configuration. This enables secure credential injection and environment-specific overrides.
 
 ## Sensitive data redaction
 
-By default, these fields are redacted:
+These keys are redacted by default:
 
 - password
 - token
@@ -198,42 +236,38 @@ By default, these fields are redacted:
 - private_key
 - credentials
 
-To add more fields:
-
-```bash
-AIMONITOR_SENSITIVE_KEYS=password,token,api_key,secret,custom_field
-```
-
-Or programmatically:
+You can extend this list with:
 
 ```python
-from configs.config import get_settings
-
 settings = get_settings()
 settings.sensitive_keys.add("my_secret_field")
 ```
 
 ## Troubleshooting
 
-### Settings not being loaded from .env
+### Config is not loading
 
-Ensure the `.env` file is in your working directory, and use:
+Check that the file exists and that the YAML/JSON structure matches the runtime schema:
 
 ```python
-from dotenv import load_dotenv
-load_dotenv()  # Load .env before importing settings
-from configs.config import get_settings
+settings = get_settings()
+await settings.load_from_yaml("config.yaml")
 ```
 
-### OpenTelemetry not initialized
+### Kafka values are ignored
 
-Check that:
-- `AIMONITOR_INNER_TELEMETRY=true` is set
-- `opentelemetry-api` and `opentelemetry-sdk` are installed
-- Set valid `OTEL_*` environment variables
+Make sure they are placed in the correct structure:
+
+```yaml
+exporters:
+  kafka:
+    enabled: true
+    producer:
+      batch_size: 2048
+      max_workers: 12
+```
 
 ## References
 
-- [Environment variables](https://docs.python.org/3/library/os.html)
-- [python-dotenv](https://python-dotenv.readthedocs.io/)
 - [Pydantic Settings](https://docs.pydantic.dev/latest/concepts/pydantic_settings/)
+- [Confluent Kafka Python client](https://docs.confluent.io/platform/current/clients/confluent-kafka-python/html/index.html)
