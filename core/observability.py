@@ -28,7 +28,7 @@ class ObservabilityAPI:
         Default method to emit a custom event created by the user. Needs to inherit from BaseSignal and have a SignalType defined.
         """
 
-        if not settings.track_events:
+        if not settings.tracking.track_events:
             logger.error(
                 """Events are not being tracked by aimonitor due to environment configuration. 
                 Check env vars or .yaml/.json config file"""
@@ -49,7 +49,7 @@ class ObservabilityAPI:
         metadata: dict | None = None,
         version: str = "",
     ) -> BaseSignal:
-        if not settings.track_events:
+        if not settings.tracking.track_events:
             logger.error(
                 """Events are not being tracked by aimonitor due to environment configuration. 
                 Check env vars or .yaml/.json config file"""
@@ -80,7 +80,7 @@ class ObservabilityAPI:
         source: str = "",
         version: str = "",
     ) -> BaseSignal:
-        if not settings.track_logs:
+        if not settings.tracking.track_logs:
             logger.error(
                 """Logs are not being tracked by aimonitor due to environment configuration. 
                 Check env vars or .yaml/.json config file"""
@@ -106,7 +106,7 @@ class ObservabilityAPI:
         metadata: dict | None = None,
         version: str = "",
     ) -> BaseSignal:
-        if not settings.track_metrics:
+        if not settings.tracking.track_metrics:
             logger.error(
                 """Metrics are not being tracked by aimonitor due to environment configuration. 
                 Check env vars or .yaml/.json config file"""
@@ -129,7 +129,7 @@ class ObservabilityAPI:
     async def aspan(self, operation_name: str, metadata: Optional[dict] = None, capture_exceptions: bool = False):
         """Asynchronous context manager for creating a span event."""
 
-        if not settings.track_events:
+        if not settings.tracking.track_events:
             logger.error(
                 """Spans are not being tracked by aimonitor due to environment configuration. 
                 Check env vars or .yaml/.json config file"""

@@ -11,7 +11,7 @@ from bootstrap import initialize_monitor
 
 async def main():
     settings = await initialize_monitor("config.yaml")
-    print(settings.prometheus_enabled, settings.kafka_enabled)
+  print(settings.exporters.prometheus.enabled, settings.exporters.kafka.enabled)
 ```
 
 The `initialize_monitor()` function:
@@ -143,26 +143,72 @@ await settings.load_from_json("config.json")
 
 ## Runtime fields
 
-The config parser exposes both exporter runtime settings and internal telemetry settings on `AIMonitorSettings`:
+The configuration is organized into `app`, `tracking`, `telemetry`, and `exporters` sections. These nested sections are the runtime source of truth.
+
+## Default values
+
+The most relevant defaults are:
+
+| Section | Setting | Default |
+| --- | --- | --- |
+| `app` | `env` | `ENV` |
+| `app` | `logger_level` | `INFO` |
+| `tracking` | `enabled` | `true` |
+| `tracking` | `track_metrics` | `true` |
+| `tracking` | `track_events` | `true` |
+| `tracking` | `track_logs` | `true` |
+| `telemetry` | `inner_telemetry` | `false` |
+| `telemetry` | `healthcheck_enabled` | `true` |
+| `telemetry` | `healthcheck_interval` | `60` seconds |
+| `security` | `sensitive_keys` | password, token, api_key, secret, and other credential names |
+| `exporters.redis` | `enabled` | `false` |
+| `exporters.redis` | `url` | `null` |
+| `exporters.mongodb` | `enabled` | `false` |
+| `exporters.mongodb` | `url` | `null` |
+| `exporters.postgres` | `enabled` | `false` |
+| `exporters.postgres` | `url` | `null` |
+| `exporters.prometheus` | `enabled` | `false` |
+| `exporters.prometheus` | `url` | `null` |
+| `exporters.kafka` | `enabled` | `false` |
+| `exporters.kafka` | `security_protocol` | `null` |
+| `exporters.kafka` | `auto_offset_reset` | `null` |
+| `exporters.kafka` | `group_id` | `aimonitor-group` |
+| `exporters.kafka` | `buffer_timeout` | `null` in settings, `1.0` seconds at bootstrap |
+| `exporters.kafka.producer` | `acks` | `all` |
+| `exporters.kafka.producer` | `retries` | `3` |
+| `exporters.kafka.producer` | `linger_ms` | `5` |
+| `exporters.kafka.producer` | `compression` | `none` |
+| `exporters.kafka.producer` | `max_workers` | `5` at bootstrap |
+| `exporters.kafka.producer` | `batch_size` | `10` at bootstrap |
+| `exporters.file` | `enabled` | `false` |
+| `exporters.file` | `path` | `./logs` |
+| `exporters.file` | `max_mb_per_file` | `10.0` |
+| `exporters.sqlite` | `enabled` | `false` |
+| `exporters.sqlite` | `uri` | `null` |
+| `exporters.otel` | `enabled` | `false` |
+| `exporters.otel` | `service_name` | `aimonitor-mcp` |
+| `exporters.otel` | `span_prefix` | `mcp.tool` |
+
+The exporter constructors also have explicit standalone defaults. Bootstrap passes the configured values when an exporter is initialized.
 
 ### Internal telemetry
 
-- `inner_telemetry`
-- `healthcheck_enabled`
-- `healthcheck_interval`
+- `telemetry.inner_telemetry`
+- `telemetry.healthcheck_enabled`
+- `telemetry.healthcheck_interval`
 
 These control the SDK observability layer and the background exporter readiness loop.
 
 ### Kafka exporter
 
-- `kafka_enabled`
-- `kafka_bootstrap_servers`
-- `kafka_producer_acks`
-- `kafka_retry_policy`
-- `kafka_max_workers`
-- `kafka_batch_size`
-- `kafka_buffer_timeout`
-- `kafka_producer_linger_ms`
+- `exporters.kafka.enabled`
+- `exporters.kafka.bootstrap_servers`
+- `exporters.kafka.producer.acks`
+- `exporters.kafka.producer.retries`
+- `exporters.kafka.producer.max_workers`
+- `exporters.kafka.producer.batch_size`
+- `exporters.kafka.buffer_timeout`
+- `exporters.kafka.producer.linger_ms`
 
 `get_kafka_config()` builds the exact dict expected by the Confluent Kafka producer.
 

@@ -1,7 +1,6 @@
 from typing import List, Optional
 from urllib.parse import urlparse
 
-from configs.config import settings
 from core.event import BaseSignal, SignalType, HealthCheckEvent, HealthStatus
 from exporters.base import BaseExporter
 from utils.logger import logger
@@ -19,9 +18,9 @@ class PrometheusExporter(BaseExporter):
 
     SUPPORTED_SIGNALS = {SignalType.METRIC}
 
-    def __init__(self, address: Optional[str] = None, registry: Optional[CollectorRegistry] = None):
+    def __init__(self, address: str = "http://0.0.0.0:9000", registry: Optional[CollectorRegistry] = None):
         super().__init__()
-        self.address = address or settings.prometheus_url
+        self.address = address
         self.registry = registry if registry is not None else CollectorRegistry(auto_describe=True)
         self._server_started = False
 

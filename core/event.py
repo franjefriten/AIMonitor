@@ -57,7 +57,7 @@ class BaseSignal(BaseModel):
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC), description="The timestamp of when the signal was generated.")
     event_type: SignalType
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata associated with the signal.")
-    environment: str = Field(default=settings.env_code, description="The environment in which the signal was generated, e.g., 'production', 'staging', etc.")
+    environment: str = Field(default=settings.app.env_code, description="The environment in which the signal was generated, e.g., 'production', 'staging', etc.")
     hostname: str = Field(default_factory=lambda: socket.gethostname(), description="The hostname of the machine where the signal was generated.")
     version: str = Field(default="", description="The version of the application or service generating the signal.")
 

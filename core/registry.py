@@ -33,17 +33,17 @@ class ExporterRegistry:
         self.batch_size = batch_size
         self.flush_delta = flush_delta
         settings = get_settings()
-        self._healthcheck_enabled = settings.healthcheck_enabled
-        self._healthcheck_interval = settings.healthcheck_interval
+        self._healthcheck_enabled = settings.telemetry.healthcheck_enabled
+        self._healthcheck_interval = settings.telemetry.healthcheck_interval
 
     def _start_healthcheck_worker(self):
         settings = get_settings()
-        if not settings.healthcheck_enabled:
+        if not settings.telemetry.healthcheck_enabled:
             self._healthcheck_enabled = False
             return
 
         self._healthcheck_enabled = True
-        self._healthcheck_interval = settings.healthcheck_interval
+        self._healthcheck_interval = settings.telemetry.healthcheck_interval
 
         try:
             loop = asyncio.get_running_loop()

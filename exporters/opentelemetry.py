@@ -2,7 +2,6 @@ import os
 import json
 from typing import Any, List, Optional
 
-from configs.config import get_settings
 from core.event import HealthCheckEvent, HealthStatus, MCPEvent
 from exporters.base import BaseExporter
 from utils.logger import logger
@@ -19,14 +18,13 @@ class OpenTelemetryExporter(BaseExporter):
 
     def __init__(
         self,
-        enabled: Optional[bool] = None,
-        service_name: Optional[str] = None,
-        span_prefix: Optional[str] = None,
+        enabled: bool = False,
+        service_name: str = "aimonitor-mcp",
+        span_prefix: str = "mcp.tool",
     ):
-        settings = get_settings()
-        self.enabled = settings.otel_mcp_exporter_enabled if enabled is None else bool(enabled)
-        self.service_name = service_name or settings.otel_mcp_service_name
-        self.span_prefix = span_prefix or settings.otel_mcp_span_prefix
+        self.enabled = bool(enabled)
+        self.service_name = service_name
+        self.span_prefix = span_prefix
 
         self.tracer = None
         if self.enabled:

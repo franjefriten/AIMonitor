@@ -82,6 +82,11 @@ exporters:
     assert settings.kafka_bootstrap_servers == "localhost:9092"
     assert settings.kafka_batch_size == 2048
     assert settings.kafka_max_workers == 12
+    assert settings.exporters.kafka.enabled is True
+    assert settings.exporters.kafka.bootstrap_servers == "localhost:9092"
+    assert settings.exporters.kafka.producer.acks == "all"
+    assert settings.exporters.kafka.producer.batch_size == 2048
+    assert settings.exporters.kafka.producer.max_workers == 12
 
     await registry.shutdown()
 

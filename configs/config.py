@@ -133,6 +133,13 @@ class AppSettings(BaseModel):
         return self.env_code.value
 
 
+class TrackingSettings(BaseModel):
+    enabled: bool = Field(default=True, description="Whether general tracking is enabled")
+    track_metrics: bool = Field(default=True, description="Whether metrics are tracked")
+    track_events: bool = Field(default=True, description="Whether events are tracked")
+    track_logs: bool = Field(default=True, description="Whether logs are tracked")
+
+
 class TelemetrySettings(BaseModel):
     inner_telemetry: bool = Field(default=False, description="Whether internal telemetry is enabled")
     healthcheck_enabled: bool = Field(default=True, description="Whether the background exporter healthcheck loop is enabled")
@@ -220,6 +227,7 @@ class AIMonitorSettings(BaseSettings):
     )
 
     app: AppSettings = Field(default_factory=AppSettings)
+    tracking: TrackingSettings = Field(default_factory=TrackingSettings)
     telemetry: TelemetrySettings = Field(default_factory=TelemetrySettings)
     exporters: ExporterSettings = Field(default_factory=ExporterSettings)
 
@@ -825,30 +833,32 @@ class AIMonitorSettings(BaseSettings):
     
     def get_kafka_config(self) -> dict:
         """Return the exact producer configuration expected by confluent-kafka."""
+        kafka = self.exporters.kafka
+        producer = kafka.producer
         conf = {
-            "bootstrap.servers": self.kafka_bootstrap_servers,
-            "security.protocol": self.kafka_security_protocol,
+            "bootstrap.servers": kafka.bootstrap_servers,
+            "security.protocol": kafka.security_protocol,
             "client.id": socket.gethostname(),
-            "auto.offset.reset": self.kafka_auto_offset_reset,
-            "acks": self.kafka_producer_acks if self.kafka_producer_acks is not None else "all",
+            "auto.offset.reset": kafka.auto_offset_reset,
+            "acks": producer.acks if producer.acks is not None else "all",
             "enable.idempotence": True,
-            "retries": self.kafka_retry_policy if self.kafka_retry_policy is not None else 3,
-            "max.in.flight.requests.per.connection": self.kafka_max_in_flight_requests_per_connection if self.kafka_max_in_flight_requests_per_connection is not None else 5,
-            "linger.ms": self.kafka_producer_linger_ms if self.kafka_producer_linger_ms is not None else 5,
-            "compression.type": self.kafka_compression_type if self.kafka_compression_type is not None else "none",
-            "delivery.timeout.ms": self.kafka_delivery_timeout_ms if self.kafka_delivery_timeout_ms is not None else 120000,
-            "request.timeout.ms": self.kafka_request_timeout_ms if self.kafka_request_timeout_ms is not None else 30000,
-            "socket.timeout.ms": self.kafka_socket_timeout_ms if self.kafka_socket_timeout_ms is not None else 30000,
-            "reconnect.backoff.ms": self.kafka_reconnect_backoff_ms if self.kafka_reconnect_backoff_ms is not None else 1000,
-            "reconnect.backoff.max.ms": self.kafka_reconnect_backoff_max_ms if self.kafka_reconnect_backoff_max_ms is not None else 30000,
+            "retries": producer.retries if producer.retries is not None else 3,
+            "max.in.flight.requests.per.connection": kafka.max_in_flight_requests_per_connection if kafka.max_in_flight_requests_per_connection is not None else 5,
+            "linger.ms": producer.linger_ms if producer.linger_ms is not None else 5,
+            "compression.type": producer.compression if producer.compression is not None else "none",
+            "delivery.timeout.ms": kafka.delivery_timeout_ms if kafka.delivery_timeout_ms is not None else 120000,
+            "request.timeout.ms": kafka.request_timeout_ms if kafka.request_timeout_ms is not None else 30000,
+            "socket.timeout.ms": kafka.socket_timeout_ms if kafka.socket_timeout_ms is not None else 30000,
+            "reconnect.backoff.ms": kafka.reconnect_backoff_ms if kafka.reconnect_backoff_ms is not None else 1000,
+            "reconnect.backoff.max.ms": kafka.reconnect_backoff_max_ms if kafka.reconnect_backoff_max_ms is not None else 30000,
         }
 
-        if self.kafka_sasl_mechanism:
-            conf["sasl.mechanism"] = self.kafka_sasl_mechanism
-        if self.kafka_sasl_username:
-            conf["sasl.username"] = self.kafka_sasl_username.get_secret_value() if hasattr(self.kafka_sasl_username, "get_secret_value") else self.kafka_sasl_username
-        if self.kafka_sasl_password:
-            conf["sasl.password"] = self.kafka_sasl_password.get_secret_value() if hasattr(self.kafka_sasl_password, "get_secret_value") else self.kafka_sasl_password
+        if kafka.sasl_mechanism:
+            conf["sasl.mechanism"] = kafka.sasl_mechanism
+        if kafka.sasl_username:
+            conf["sasl.username"] = kafka.sasl_username
+        if kafka.sasl_password:
+            conf["sasl.password"] = kafka.sasl_password
 
         return conf
 
@@ -876,6 +886,12 @@ class AIMonitorSettings(BaseSettings):
     @model_validator(mode="after")
     def sync_nested_sections(self):
         self.app = AppSettings(env_code=self.env_code, logger_level=self.logger_level)
+        self.tracking = TrackingSettings(
+            enabled=self.enabled,
+            track_metrics=self.track_metrics,
+            track_events=self.track_events,
+            track_logs=self.track_logs,
+        )
         self.telemetry = TelemetrySettings(
             inner_telemetry=self.inner_telemetry,
             healthcheck_enabled=self.healthcheck_enabled,

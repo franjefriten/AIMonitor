@@ -11,10 +11,6 @@ from aiofiles import os
 from typing import Protocol
 import aiofiles
 from pathlib import Path
-from configs.config import get_settings
-
-settings = get_settings()
-
 # Tu Protocolo está perfecto
 class AsyncWritable(Protocol):
     async def write(self, data: str) -> int: ...
@@ -29,9 +25,9 @@ class FileExporter(BaseExporter):
     SUPPORTED_SIGNALS = {SignalType.EVENT, SignalType.LOG, SignalType.METRIC, SignalType.SPAN}
 
     def __init__(
-            self, base_uri: str | Path = settings.file_exporter_logs, 
+            self, base_uri: str | Path = Path("./logs"),
             mode: Literal['a', 'w', 'x'] = 'a',
-            max_bytes: float = (1024 * settings.max_mb_per_file * 1024)
+            max_bytes: float = (1024 * 10.0 * 1024)
         ):
         super().__init__()
         self.base_uri = Path(base_uri)
