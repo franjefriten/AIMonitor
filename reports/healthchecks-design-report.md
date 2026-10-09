@@ -419,3 +419,18 @@ InternalTelemetryManager
 ```
 
 La idea central es mantener una única fuente de verdad para el ciclo de vida: el registry. La API de health debe ser una vista segura y serializable de ese estado, y la recuperación debe ser una política explícita, limitada y observable.
+
+## 16. Orden de trabajo para la siguiente sesión
+
+Antes de implementar recovery, conviene consolidar el contrato de telemetría. La siguiente sesión debería seguir este orden:
+
+1. Cambiar `track_healthcheck()` para que reciba un `HealthCheckSnapshot` completo, en lugar de `exporter_name`, `healthy` y `message` por separado.
+2. Retirar la emisión de telemetría del wrapper de `BaseExporter._healthcheck()` o dejarla limitada al resultado provisional.
+3. Hacer que el registry emita el snapshot después de consolidar timestamps y contadores.
+4. Comparar el estado anterior y el nuevo para emitir solo transiciones relevantes, como `healthy -> down` o `recovering -> healthy`.
+5. Mantener el snapshot como fuente de verdad y OpenTelemetry como canal opcional de observabilidad.
+6. Añadir tests para snapshots, transiciones y ausencia de eventos duplicados.
+7. Revisar el timeout del healthcheck y separarlo del intervalo antes de avanzar con recovery.
+8. Implementar después `recover()` con límite de intentos, backoff y protección contra recuperaciones simultáneas.
+
+La primera meta no es todavía recuperar exporters, sino conseguir que un healthcheck produzca una única representación coherente del estado y que sus cambios sean observables sin ruido.

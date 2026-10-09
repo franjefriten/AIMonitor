@@ -19,6 +19,8 @@ async def test_tool_monitoring_workflow():
             pass
         async def status(self):
             pass
+        async def recover(self):
+            return True
 
     spy = SpyExporter()
     

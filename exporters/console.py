@@ -73,4 +73,9 @@ class ConsoleExporter(BaseExporter):
             "message": "ConsoleExporter is operational.",
             "stream": str(getattr(self.stream, "name", self.stream.__class__.__name__)),
         }
-        
+    
+    async def recover(self) -> bool:
+        """
+        Attempt to recover the ConsoleExporter. Since this exporter writes to the console, recovery is always considered successful.
+        """
+        return True

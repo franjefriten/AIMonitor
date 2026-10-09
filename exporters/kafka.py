@@ -6,7 +6,7 @@ except ImportError as e:
     )
    
 from exporters.base import BaseExporter, with_retry
-from core.event import MCPEvent, BaseSignal, SignalType, HealthCheckEvent, HealthStatus
+from core.event import MCPEvent, BaseSignal, SignalType
 
 import socket
 import hashlib
@@ -160,3 +160,16 @@ class KafkaExporter(BaseExporter):
                 "status": "unhealthy",
                 "message": f"Failed to retrieve Kafka metadata: {e}",
             }
+
+    async def recover(self) -> bool:
+        """
+        Attempt to recover the KafkaExporter. Recovery is considered successful if the Kafka producer can be reinitialized.
+        """
+        try:
+            if not self.producer:
+                from confluent_kafka import Producer
+                self.producer = Producer(self.config)
+            return True
+        except Exception as e:
+            logger.error(f"Recovery failed for KafkaExporter: {e}")
+            return False

@@ -5,7 +5,7 @@ from enum import Enum
 from typing import Optional, Dict, Any
 from utils.logger import logger
 from configs.config import get_settings
-from core.event import SDKHealthStatus
+from core.event import HealthCheckSnapshot as HealthCheckEvent, HealthStatus, SDKHealthStatus
 
 
 class InternalTelemetryManager:
@@ -101,12 +101,10 @@ class InternalTelemetryManager:
             # Absolute safety net: an internal telemetry failure never breaks the user's software
             sys.stderr.write(f"[SDK Telemetry Error] Failed to record event '{event_name}': {internal_error}\n")
 
-    def track_healthcheck(
+    async def track_healthcheck(
         self,
-        exporter_name: str,
-        healthy: bool,
-        message: str = "",
-        attributes: Optional[Dict[str, Any]] = None,
+        event: HealthCheckEvent,
+        attributes: Optional[Dict[str, Any]] = None
     ) -> None:
         """
         Record an internal healthcheck result for a concrete exporter.
@@ -117,11 +115,7 @@ class InternalTelemetryManager:
         if not self.enabled or not self.tracer:
             return
 
-        payload = {
-            "exporter_name": exporter_name,
-            "healthy": bool(healthy),
-            "message": message,
-        }
+        payload = event.model_dump()
         if attributes:
             payload.update(attributes)
 
@@ -134,7 +128,7 @@ class InternalTelemetryManager:
                         span.set_attribute(str(key), str(value))
         except Exception as internal_error:
             sys.stderr.write(
-                f"[SDK Telemetry Error] Failed to record exporter healthcheck '{exporter_name}': {internal_error}\n"
+                f"[SDK Telemetry Error] Failed to record exporter healthcheck '{event.exporter_name}': {internal_error}\n"
             )
 
     async def track_system_health_snapshot_async(self, exporters: list) -> Dict[str, Any]:
@@ -167,9 +161,24 @@ class InternalTelemetryManager:
             raw_status = status_payload.get("status", "unhealthy")
             if hasattr(raw_status, "value"):
                 raw_status = raw_status.value
+            normalized_status = str(raw_status).lower()
+            if normalized_status == "unhealthy":
+                normalized_status = HealthStatus.DOWN.value
+            try:
+                health_status = HealthStatus(normalized_status)
+            except ValueError:
+                health_status = HealthStatus.DOWN
+
+            await self.track_healthcheck(
+                HealthCheckEvent(
+                    exporter_name=exporter_name,
+                    status=health_status,
+                    message=str(status_payload.get("message", "")),
+                )
+            )
             exporter_entry = {
                 "name": exporter_name,
-                "status": str(raw_status).lower(),
+                "status": normalized_status,
                 "message": status_payload.get("message", ""),
                 "details": status_payload,
             }
@@ -217,7 +226,7 @@ class InternalTelemetryManager:
         if snapshot["status"] == "degraded":
             overall = SDKHealthStatus.DEGRADED.value
         elif snapshot["status"] == "unhealthy":
-            overall = SDKHealthStatus.UNHEALTHY.value
+            overall = SDKHealthStatus.DOWN.value
         elif snapshot["status"] == "empty":
             overall = SDKHealthStatus.EMPTY.value
 

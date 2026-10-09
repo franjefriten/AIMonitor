@@ -22,6 +22,8 @@ async def test_exporter_on_successful_events_batches():
                 "message": "Exporter is healthy and connected to the destination.",
                 "timestamp": "2023-01-01T12:00:00Z"
             }
+        async def recover(self):
+            return True
         
     total_events = 20
     tool_names = ["some_tool", "some_other_tool", "another_tool"]
@@ -63,6 +65,9 @@ async def test_exporter_auto_removal_on_failure():
 
         async def status(self):
             return {"status": "unhealthy", "message": "Service Down"}
+        
+        async def recover(self):
+            return True
 
     event1 = _generate_mcp_event()
 
@@ -92,6 +97,9 @@ async def test_registry_tracks_export_failure_and_shutdown_status():
 
         async def status(self):
             return {"status": "healthy"}
+        
+        async def recover(self):
+            return True
 
     exporter = FailingExporter()
     registry.register(exporter)

@@ -212,13 +212,8 @@ class HealthCheckSnapshot(InnerEvent):
     consecutive_failures: int = Field(default=0, description="The number of consecutive failed health checks.")
     consecutive_successes: int = Field(default=0, description="The number of consecutive successful health checks.")
 
-class SDKHealthSnapshot(InnerEvent):
+class SDKHealthCheckSnapshot(InnerEvent):
     status: SDKHealthStatus = Field(default=SDKHealthStatus.HEALTHY, description="The health status of the SDK.")
     checked_at: datetime | None = Field(default=None, description="The timestamp when the SDK health was last checked.")
     summary: dict[str, int] = Field(default_factory=dict, description="A summary of the SDK health status.")
     exporters: dict[str, HealthCheckSnapshot] = Field(default_factory=dict, description="The health status of individual exporters.")
-
-
-# Backwards-compatible names for callers using the original event terminology.
-HealthCheckEvent = HealthCheckSnapshot
-SDKHealthCheckEvent = SDKHealthSnapshot

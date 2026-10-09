@@ -1,7 +1,9 @@
 import types
 import sys
+import asyncio
 from unittest.mock import patch
 
+from core.event import HealthCheckSnapshot, HealthStatus
 from telemetry.api import configure_internal_telemetry, internal_telemetry_manager
 
 
@@ -137,14 +139,23 @@ def test_track_healthcheck_reports_exporter_state_to_internal_telemetry():
 
     with patch.dict("sys.modules", {"opentelemetry": fake_module}):
         manager = configure_internal_telemetry(enabled=True, service_name="test-service")
-        manager.track_healthcheck("KafkaExporter", True, "Broker reachable", {"topic": "aimonitor-healthcheck"})
+        asyncio.run(
+            manager.track_healthcheck(
+                HealthCheckSnapshot(
+                    exporter_name="KafkaExporter",
+                    status=HealthStatus.HEALTHY,
+                    message="Broker reachable",
+                ),
+                {"topic": "aimonitor-healthcheck"},
+            )
+        )
 
     assert manager.enabled is True
     assert len(fake_tracer.started_spans) == 1
     event_name, span = fake_tracer.started_spans[0]
     assert event_name == "sdk.exporter.healthcheck"
     assert span.attributes["exporter_name"] == "KafkaExporter"
-    assert span.attributes["healthy"] is True
+    assert span.attributes["status"] == HealthStatus.HEALTHY.value
     assert span.attributes["message"] == "Broker reachable"
     assert span.attributes["topic"] == "aimonitor-healthcheck"
 
@@ -170,7 +181,7 @@ def test_track_system_health_snapshot_reports_summary_for_all_exporters():
     assert snapshot["unhealthy_count"] == 1
     assert snapshot["status"] == "degraded"
     assert snapshot["exporters"][0]["name"] == "HealthyExporter"
-    assert snapshot["exporters"][1]["status"] == "unhealthy"
+    assert snapshot["exporters"][1]["status"] == "down"
 
 
 def test_get_system_health_uses_explicit_sdk_health_enum():

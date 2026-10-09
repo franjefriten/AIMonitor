@@ -3,7 +3,7 @@ import json
 from typing import Any, List, Optional
 
 from configs.config import get_settings
-from core.event import HealthCheckEvent, HealthStatus, MCPEvent
+from core.event import MCPEvent
 from exporters.base import BaseExporter
 from utils.logger import logger
 
@@ -132,3 +132,16 @@ class OpenTelemetryExporter(BaseExporter):
             "span_prefix": self.span_prefix,
             "tracer_initialized": self.tracer is not None,
         }
+    
+    async def recover(self) -> bool:
+        """
+        Attempt to recover the OpenTelemetry MCP exporter. Recovery is considered successful if the tracer can be reinitialized.
+        """
+        try:
+            if not self.tracer:
+                from opentelemetry import trace
+                self.tracer = trace.get_tracer(__name__)
+            return True
+        except Exception as e:
+            logger.error(f"Recovery failed for OpenTelemetry MCP exporter: {e}")
+            return False

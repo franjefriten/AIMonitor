@@ -60,6 +60,27 @@ _HEALTHCHECK_INTERVAL_ALIASES = frozenset({
     "telemetry_healthcheck_interval",
     "telemetryHealthcheckInterval",
 })
+_HEALTHCHECK_TIMEOUT_ALIASES = frozenset({
+    "healthcheck_timeout",
+    "healthcheck-timeout",
+    "healthcheckTimeout",
+    "exporter_healthcheck_timeout",
+    "exporterHealthcheckTimeout",
+})
+_HEALTHCHECK_RETRY_POLICY_ALIASES = frozenset({
+    "healthcheck_retry_policy",
+    "healthcheck-retry-policy",
+    "healthcheckRetryPolicy",
+    "exporter_healthcheck_retry_policy",
+    "exporterHealthcheckRetryPolicy",
+})
+_HEALTHCHECK_RECOVERY_TIMEOUT_ALIASES = frozenset({
+    "healthcheck_recovery_timeout",
+    "healthcheck-recovery-timeout",
+    "healthcheckRecoveryTimeout",
+    "exporter_healthcheck_recovery_timeout",
+    "exporterHealthcheckRecoveryTimeout",
+})
 _OTEL_MCP_EXPORTER_ENABLED_ALIASES = frozenset({
     "otel_mcp_exporter_enabled",
     "otel-mcp-exporter-enabled",
@@ -299,6 +320,23 @@ class AIMonitorSettings(BaseSettings):
         description="Seconds between exporter health checks when the registry background loop is enabled",
         ge=1,
         validation_alias=AliasChoices(*_HEALTHCHECK_INTERVAL_ALIASES),
+    )
+    healthcheck_timeout: int = Field(
+        default=10,
+        description="Timeout in seconds for each exporter health check when the registry background loop is enabled",
+        ge=1,
+        validation_alias=AliasChoices(*_HEALTHCHECK_TIMEOUT_ALIASES),
+    )
+    healthcheck_retry_policy: int = Field(
+        default=3,
+        description="Retry policy for exporter health checks when the registry background loop is enabled",
+        validation_alias=AliasChoices(*_HEALTHCHECK_RETRY_POLICY_ALIASES),
+    )
+    healthcheck_recovery_timeout: int = Field(
+        default=10,
+        description="Timeout in seconds for recovery attempts of each exporter when the registry background loop is enabled",
+        ge=1,
+        validation_alias=AliasChoices(*_HEALTHCHECK_RECOVERY_TIMEOUT_ALIASES),
     )
 
     def reset(self) -> None:

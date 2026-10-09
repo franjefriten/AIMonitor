@@ -83,3 +83,29 @@ The same functions can be connected to Starlette, Flask through an adapter, or a
 - Protect diagnostic routes at the application or network layer.
 - Do not expose credentials or unsanitized configuration in health responses.
 - Do not add a public reload endpoint unless it is explicitly authenticated and required by the host application.
+
+## How to write healthchecks for custom exporters
+
+AIMonitor allows developers to create their own exporters as one of its main features as long as they follow the class inherits from `BaseExporter`. When writing the mandatory `healthcheck` method, users must always comply to the following contract
+
+* When the function returns `True`, AIMonitor will send a `HEALTHY` status event under the hood
+* When the function returns `False`, AIMonitor will send a `DOWN` status event. Then, AIMonitor will attempt to recover the exporter and send a `RECOVERING` status event.
+* When the function raises an unexpected error, AIMonitor will catch it an emit a `FAILURE` status event. Always make sure to write solid code when to avoid this scenario.
+* If a healthcheck exceeds the declared interval in the YAML/JSON file or env variables, AIMonitor will interpret the exporter failed and emit `FAILURE` status event	
+
+```Python
+from expoerters.base import BaseExporter
+
+class CustomExporter(BaseExporter):
+
+  async def healthcheck(self):
+    try:
+	    if ...:
+	    	return True
+		else:
+      	   	return False
+	except:
+		# so somethinf
+```
+
+dfsfsda

@@ -5,7 +5,7 @@ from core.event import (
     BaseSignal,
     HealthCheckSnapshot,
     HealthStatus,
-    SDKHealthCheckEvent,
+    SDKHealthCheckSnapshot,
     SDKHealthStatus,
 )
 from configs.config import get_settings
@@ -15,8 +15,7 @@ import time
 from datetime import UTC, datetime
 from utils.logger import logger
 from tenacity import retry
-from core.event import SDKHealthCheckEvent, SDKHealthStatus
-    
+from telemetry.api import internal_telemetry_manager
 
 class ExporterRegistry:
     _instance = None
@@ -46,7 +45,10 @@ class ExporterRegistry:
         settings = get_settings()
         self._healthcheck_enabled = settings.healthcheck_enabled
         self._healthcheck_interval = settings.healthcheck_interval
-        self._health = SDKHealthCheckEvent(
+        self._healthcheck_timeout = settings.healthcheck_timeout
+        self._healthcheck_retry_policy = settings.healthcheck_retry_policy
+        self._healthcheck_recovery_timeout = settings.healthcheck_recovery_timeout
+        self._health = SDKHealthCheckSnapshot(
             status=SDKHealthStatus.STARTING,
             summary={
                 "total_exporters": 0,
@@ -58,7 +60,10 @@ class ExporterRegistry:
             },
         )
 
+    ## INTERNAL HEALTH MANAGEMENT METHODS
+
     def _snapshot_key(self, exporter: BaseExporter) -> str:
+        """Creates the internal key for the exporter"""
         exporter_id = id(exporter)
         existing_key = self._health_keys.get(exporter_id)
         if existing_key is not None:
@@ -75,32 +80,73 @@ class ExporterRegistry:
         return key
 
     def _update_sdk_health(self) -> None:
+        """Updates the overall SDK health based on the individual exporter health snapshots."""
+        previous_status = self._health.status
         snapshots = list(self._health.exporters.values())
         counts = {
             "total_exporters": len(snapshots),
             "healthy_count": sum(item.status == HealthStatus.HEALTHY for item in snapshots),
             "recovering_count": sum(item.status == HealthStatus.RECOVERING for item in snapshots),
             "failure_count": sum(item.status == HealthStatus.FAILURE for item in snapshots),
-            "down_count": sum(item.status == HealthStatus.DOWN for item in snapshots),
+            "down_count": sum(item.status in {HealthStatus.DOWN, HealthStatus.FAILURE} for item in snapshots), # We must include failures as down
             "stopped_count": sum(item.status == HealthStatus.STOPPED for item in snapshots),
         }
         self._health.summary = counts
         self._health.checked_at = datetime.now(UTC)
 
         active_statuses = {
-            item.status for item in snapshots
+            item.status
+            for item in snapshots
             if item.status not in {HealthStatus.STOPPED, HealthStatus.UNUSED}
         }
-        if not active_statuses:
-            self._health.status = SDKHealthStatus.EMPTY if not snapshots else SDKHealthStatus.DOWN
+        if not snapshots:
+            sdk_status = SDKHealthStatus.EMPTY
+        elif not active_statuses:
+            sdk_status = SDKHealthStatus.DOWN
         elif active_statuses == {HealthStatus.STARTING}:
-            self._health.status = SDKHealthStatus.STARTING
+            sdk_status = SDKHealthStatus.STARTING
         elif active_statuses == {HealthStatus.HEALTHY}:
-            self._health.status = SDKHealthStatus.HEALTHY
-        elif HealthStatus.HEALTHY in active_statuses:
-            self._health.status = SDKHealthStatus.DEGRADED
+            sdk_status = SDKHealthStatus.HEALTHY
+        elif {
+            HealthStatus.HEALTHY,
+            HealthStatus.RECOVERING,
+            HealthStatus.STARTING,
+        } & active_statuses:
+            sdk_status = SDKHealthStatus.DEGRADED
+        elif active_statuses:
+            sdk_status = SDKHealthStatus.DEGRADED
         else:
-            self._health.status = SDKHealthStatus.DOWN
+            sdk_status = SDKHealthStatus.DOWN
+
+        self._health.status = sdk_status
+
+        if previous_status != self._health.status:
+            self._log_sdk_health_transition(previous_status, self._health.status)
+            self._publish_sdk_health_transition(previous_status, self._health.status)
+
+    def _log_sdk_health_transition(
+        self,
+        previous: SDKHealthStatus,
+        current: SDKHealthStatus,
+    ) -> None:
+        logger.info(
+            "SDK health transitioned from %s to %s",
+            previous.value.upper(),
+            current.value.upper(),
+        )
+
+    def _publish_sdk_health_transition(
+        self,
+        previous: SDKHealthStatus,
+        current: SDKHealthStatus,
+    ) -> None:
+        internal_telemetry_manager.track_event(
+            "sdk.health.transition",
+            {
+                "previous_status": previous.value,
+                "status": current.value,
+            },
+        )
 
     def _update_exporter_health(
         self,
@@ -108,7 +154,7 @@ class ExporterRegistry:
         snapshot: HealthCheckSnapshot,
     ) -> None:
         key = self._snapshot_key(exporter)
-        previous = self._health.exporters.get(key)
+        previous = self._health.exporters.get(key) # Previous snapshot for this exporter, to be updated
         if previous is not None:
             if snapshot.last_success_at is None:
                 snapshot.last_success_at = previous.last_success_at
@@ -122,6 +168,155 @@ class ExporterRegistry:
                 snapshot.consecutive_failures = previous.consecutive_failures + 1
         self._health.exporters[key] = snapshot
         self._update_sdk_health()
+
+    def _log_health_transition(
+        self,
+        exporter: BaseExporter,
+        previous: HealthCheckSnapshot | None,
+        current: HealthCheckSnapshot,
+    ) -> bool:
+        if previous is None or previous.status == current.status:
+            return False
+
+        logger.info(
+            "Exporter %s transitioned from %s to %s",
+            exporter.__class__.__name__,
+            previous.status.value.upper(),
+            current.status.value.upper(),
+        )
+        return True
+
+    async def _publish_health_transition(self, snapshot: HealthCheckSnapshot) -> None:
+        await internal_telemetry_manager.track_healthcheck(snapshot)
+
+    async def _run_healthcheck(self, exporter: BaseExporter) -> HealthCheckSnapshot:
+        started_at = datetime.now(UTC)
+
+        try:
+            health = await exporter.healthcheck()
+            if health:
+                status = HealthStatus.HEALTHY
+                last_success_at=started_at
+                last_failure_at=None
+            else:
+                status = HealthStatus.DOWN
+                last_failure_at=started_at
+                last_success_at=None
+            health_snapshot = HealthCheckSnapshot(
+                exporter_name=exporter.__class__.__name__,
+                status=status,
+                message="Health check completed.",
+                last_success_at=last_success_at,
+                last_failure_at=last_failure_at,
+                last_check_started_at=started_at,
+                last_check_finished_at=datetime.now(UTC)
+            )
+        except Exception:
+            status = HealthStatus.FAILURE
+            health_snapshot = HealthCheckSnapshot(
+                exporter_name=exporter.__class__.__name__,
+                status=status,
+                message="Health check failed.",
+                last_success_at=None,
+                last_failure_at=started_at,
+                last_check_started_at=started_at,
+                last_check_finished_at=datetime.now(UTC)
+            )
+        # Capture the previous snapshot before replacing it so transitions compare old and new state.
+        snapshot_key = self._snapshot_key(exporter)
+        previous = self._health.exporters.get(snapshot_key)
+        self._update_exporter_health(exporter, health_snapshot)
+        # Only publish real status changes; repeated checks with the same status are not transitions.
+        if self._log_health_transition(exporter, previous, health_snapshot):
+            await self._publish_health_transition(health_snapshot)
+        return health_snapshot
+        
+        
+    async def _attempt_exporter_recovery(self, exporter: BaseExporter) -> bool:
+        started_at = datetime.now(UTC)
+        pre_health_recovery_snapshot = HealthCheckSnapshot(
+            exporter_name=exporter.__class__.__name__,
+            status=HealthStatus.RECOVERING,
+            message="Recovery attempt completed.",
+            last_success_at=None,
+            last_failure_at=None,
+            last_check_started_at=started_at,
+            last_check_finished_at=datetime.now(UTC)
+        )
+        previous = self._health.exporters.get(self._snapshot_key(exporter))
+        self._update_exporter_health(exporter, pre_health_recovery_snapshot)
+        if self._log_health_transition(exporter, previous, pre_health_recovery_snapshot):
+            await self._publish_health_transition(pre_health_recovery_snapshot)
+        post_health_recovery_snapshot = None
+        healthcheck_completed = False
+        try:
+            if self._healthcheck_retry_policy:
+                recovery = False
+                recovery_retries = 0
+                while not recovery and recovery_retries < self._healthcheck_retry_policy:
+                    recovery = await asyncio.wait_for(
+                        exporter.recover(),
+                        timeout=self._healthcheck_recovery_timeout if self._healthcheck_recovery_timeout else self._healthcheck_timeout
+                    )
+                    if recovery:
+                        status = HealthStatus.HEALTHY
+                        break
+                    else:
+                        status = HealthStatus.DOWN
+                        if self._healthcheck_retry_policy and recovery_retries + 1 >= self._healthcheck_retry_policy:
+                            logger.warning(f"Recovery attempt for exporter {exporter} failed after {recovery_retries + 1} retries.")
+                            break
+                    await asyncio.sleep(recovery_retries * 0.5 + 0.1)  # implement basic backoff
+                    recovery_retries += 1
+            else:
+                recovery = await asyncio.wait_for(
+                    exporter.recover(), 
+                    timeout=self._healthcheck_recovery_timeout if self._healthcheck_recovery_timeout else self._healthcheck_timeout
+                )
+                if recovery:
+                    status = HealthStatus.HEALTHY
+                else:
+                    status = HealthStatus.DOWN      
+            post_health_recovery_snapshot = HealthCheckSnapshot(
+                exporter_name=exporter.__class__.__name__,
+                status=status,
+                message="Recovery attempt completed.",
+                last_success_at=None,
+                last_failure_at=started_at if status in {HealthStatus.FAILURE, HealthStatus.DOWN} else None,
+                last_check_started_at=started_at,
+                last_check_finished_at=datetime.now(UTC)
+            )
+            # Now, we have to attempt a healthcheck to verify if the exporter has recovered.
+            health_snapshot = await self._run_healthcheck(exporter)
+            healthcheck_completed = True
+            if post_health_recovery_snapshot.status != HealthStatus.HEALTHY:
+                post_health_recovery_snapshot.status = HealthStatus.FAILURE
+                post_health_recovery_snapshot.message = "Recovery attempt failed. Recovery function failed"
+            if health_snapshot.status == HealthStatus.HEALTHY and post_health_recovery_snapshot.status == HealthStatus.HEALTHY:
+                status = HealthStatus.HEALTHY
+                post_health_recovery_snapshot.message = "Recovery attempt succeeded."
+            elif health_snapshot.status != HealthStatus.HEALTHY or post_health_recovery_snapshot.status != HealthStatus.HEALTHY:
+                status = HealthStatus.FAILURE
+                post_health_recovery_snapshot.message = "Recovery attempt failed. Health check failed after recovery was successful."
+        except Exception as e:
+            logger.error(f"Recovery attempt failed for exporter {exporter}: {e}")
+            status = HealthStatus.FAILURE
+            post_health_recovery_snapshot = HealthCheckSnapshot(
+                exporter_name=exporter.__class__.__name__,
+                status=status,
+                message="Recovery attempt failed.",
+                last_success_at=None,
+                last_failure_at=started_at,
+                last_check_started_at=started_at,
+                last_check_finished_at=datetime.now(UTC)
+            )
+        finally:
+            if post_health_recovery_snapshot is not None:
+                if not healthcheck_completed:
+                    self._update_exporter_health(exporter, post_health_recovery_snapshot)
+                await internal_telemetry_manager.track_healthcheck(post_health_recovery_snapshot)
+
+        return status == HealthStatus.HEALTHY
 
     def _start_healthcheck_worker(self):
         settings = get_settings()
@@ -144,15 +339,16 @@ class ExporterRegistry:
         while self._healthcheck_enabled:
             for exporter in list(self._exporters):
                 try:
-                    snapshot = await asyncio.wait_for(
-                        exporter._healthcheck(),
-                        timeout=self._healthcheck_interval
+                    health_snapshot = await asyncio.wait_for(
+                        self._run_healthcheck(exporter),
+                        timeout=self._healthcheck_timeout
                     )
-                    self._update_exporter_health(exporter, snapshot)
+                    if health_snapshot.status in {HealthStatus.FAILURE, HealthStatus.DOWN}:
+                        logger.error(f"Exporter {exporter.__class__.__name__} is in a bad state: {health_snapshot.status}. Attempting recovery")
+                        await self._attempt_exporter_recovery(exporter)
                 except Exception as e:
                     logger.error(f"Health check failed for exporter {exporter}: {e}")
             await asyncio.sleep(self._healthcheck_interval)
-
 
     def _ensure_queue_exists(self):
         try:
@@ -281,6 +477,7 @@ class ExporterRegistry:
                 exporter_name = exporter.__class__.__name__
                 logger.error(f"Exporter {exporter_name} failed to export event batch, error: {repr(exc)}")
                 self._record_export_result(exporter, success=False, message=str(exc))
+
     async def shutdown(self):
         if self._queue is not None:
             await self._queue.join()
@@ -317,7 +514,7 @@ class ExporterRegistry:
     async def reset(self):
         """Reset runtime state and discard health snapshots."""
         await self.shutdown()
-        self._health = SDKHealthCheckEvent(
+        self._health = SDKHealthCheckSnapshot(
             status=SDKHealthStatus.EMPTY,
             summary={
                 "total_exporters": 0,
@@ -331,7 +528,7 @@ class ExporterRegistry:
         self._health_keys = {}
 
     
-    async def health_snapshot(self) -> SDKHealthCheckEvent:
+    async def health_snapshot(self) -> SDKHealthCheckSnapshot:
         return self._health.model_copy(deep=True)
     
 

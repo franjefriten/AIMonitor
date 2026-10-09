@@ -1,5 +1,5 @@
 from exporters.base import BaseExporter, HTTPBaseExporter
-from core.event import BaseSignal, SignalType, HealthCheckEvent, HealthStatus
+from core.event import BaseSignal, SignalType
 from utils.logger import logger
 import httpx
 import asyncio
@@ -73,3 +73,15 @@ class WebhookExporter(HTTPBaseExporter):
             "headers": self.headers,
             "auth": str(self.auth) if self.auth else None,
         }
+    
+    async def recover(self) -> bool:
+        """
+        Attempt to recover the WebhookExporter. Recovery is considered successful if the HTTP client can be reinitialized.
+        """
+        try:
+            if not self.client:
+                self.client = httpx.AsyncClient()
+            return True
+        except Exception as e:
+            logger.error(f"Recovery failed for WebhookExporter: {e}")
+            return False

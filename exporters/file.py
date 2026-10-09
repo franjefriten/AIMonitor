@@ -1,5 +1,5 @@
 from exporters.base import BaseExporter, HTTPBaseExporter
-from core.event import BaseSignal, SignalType, HealthCheckEvent, HealthStatus
+from core.event import BaseSignal, SignalType
 from utils.logger import logger
 import httpx
 import asyncio
@@ -140,3 +140,15 @@ class FileExporter(BaseExporter):
             "rotation": self.rotation,
             "date": str(self.date),
         }
+    
+    async def recover(self) -> bool:
+        """
+        Attempt to recover the FileExporter. Recovery is considered successful if the file can be opened for writing.
+        """
+        try:
+            if not self.client:
+                self.client = await aiofiles.open(self.file_uri, mode='a')
+            return True
+        except Exception as e:
+            logger.error(f"Recovery failed for FileExporter: {e}")
+            return False

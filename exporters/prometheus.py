@@ -2,7 +2,7 @@ from typing import List, Optional
 from urllib.parse import urlparse
 
 from configs.config import settings
-from core.event import BaseSignal, SignalType, HealthCheckEvent, HealthStatus
+from core.event import BaseSignal, SignalType
 from exporters.base import BaseExporter
 from utils.logger import logger
 
@@ -93,3 +93,15 @@ class PrometheusExporter(BaseExporter):
             "port": self.port,
             "registry": str(self.registry),
         }
+
+    async def recover(self) -> bool:
+        """
+        Attempt to recover the PrometheusExporter. Recovery is considered successful if the HTTP server can be started.
+        """
+        try:
+            if not self._server_started:
+                await self.connect()
+            return True
+        except Exception as e:
+            logger.error(f"Recovery failed for PrometheusExporter: {e}")
+            return False
