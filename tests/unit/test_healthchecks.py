@@ -22,7 +22,12 @@ import asyncio
 
 @pytest.mark.asyncio
 async def test_healthcheck_api_returns_liveness_and_empty_readiness():
-    assert await get_process_liveness() == {"status": "alive", "component": "aimonitor-sdk"}
+    liveness = await get_process_liveness()
+    assert liveness["status"] == "alive"
+    assert liveness["component"] == "aimonitor-sdk"
+    assert liveness["pid"] > 0
+    assert liveness["uptime_seconds"] >= 0
+    assert liveness["started_at"]
 
     readiness = await get_sdk_readiness()
 

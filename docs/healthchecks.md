@@ -12,11 +12,19 @@ readiness = await get_sdk_readiness()
 telemetry = get_telemetry_status()
 ```
 
-`get_process_liveness()` only confirms that the process and SDK are running. It does not contact exporters:
+`get_process_liveness()` performs a local process check. It reports the current process ID, the time when the SDK liveness consumer started, and the observed uptime. It does not contact exporters or external dependencies:
 
 ```json
-{"status": "alive"}
+{
+  "status": "alive",
+  "component": "aimonitor-sdk",
+  "pid": 12345,
+  "started_at": "2026-10-13T12:00:00+00:00",
+  "uptime_seconds": 42.5
+}
 ```
+
+The status is `stopping` while the Python interpreter is finalizing.
 
 `get_sdk_readiness()` returns the latest cached snapshot maintained by the `ExporterRegistry`. It does not call exporter healthchecks or diagnostic methods during the request:
 

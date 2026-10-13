@@ -1,5 +1,7 @@
 import sys
 import os
+import time
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Optional, Dict, Any
 from utils.logger import logger
@@ -157,6 +159,8 @@ class TelemetryConsumer:
 
     def __init__(self, producer: TelemetryProducer):
         self._producer = producer
+        self._process_started_at = datetime.now(UTC)
+        self._process_started_monotonic = time.monotonic()
 
     def get_telemetry_status(self) -> Dict[str, Any]:
         """Return the local OpenTelemetry provider availability."""
@@ -167,9 +171,17 @@ class TelemetryConsumer:
             "meter_available": self._producer.meter is not None,
         }
 
-    async def get_process_liveness(self) -> Dict[str, str]:
-        """Return process liveness without probing exporters or dependencies."""
-        return {"status": "alive", "component": "aimonitor-sdk"}
+    async def get_process_liveness(self) -> Dict[str, Any]:
+        """Return local process liveness without probing exporters or dependencies."""
+        process_id = os.getpid()
+        status = "alive" if process_id > 0 and not sys.is_finalizing() else "stopping"
+        return {
+            "status": status,
+            "component": "aimonitor-sdk",
+            "pid": process_id,
+            "started_at": self._process_started_at.isoformat(),
+            "uptime_seconds": max(0.0, time.monotonic() - self._process_started_monotonic),
+        }
 
     async def get_sdk_readiness(self) -> Dict[str, Any]:
         """Return the registry-owned SDK health snapshot."""
@@ -204,6 +216,6 @@ async def get_sdk_readiness() -> Dict[str, Any]:
     return await telemetry_consumer.get_sdk_readiness()
 
 
-async def get_process_liveness() -> Dict[str, str]:
+async def get_process_liveness() -> Dict[str, Any]:
     """Query process liveness without probing exporters or dependencies."""
     return await telemetry_consumer.get_process_liveness()

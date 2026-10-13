@@ -185,7 +185,9 @@ def test_process_liveness_is_independent_from_telemetry_provider():
     import asyncio
 
     configure_internal_telemetry(enabled=False)
-    assert asyncio.run(get_process_liveness()) == {
-        "status": "alive",
-        "component": "aimonitor-sdk",
-    }
+    liveness = asyncio.run(get_process_liveness())
+
+    assert liveness["status"] == "alive"
+    assert liveness["component"] == "aimonitor-sdk"
+    assert liveness["pid"] > 0
+    assert liveness["uptime_seconds"] >= 0
