@@ -8,7 +8,7 @@ from configs.config import get_settings
 settings = get_settings()
 
 def setup_logging(default_path: str = "./logging.dev.yaml", default_level = logging.INFO):
-    env_code = settings.env_code
+    env_code = settings.app.env_code
     match env_code:
         case "ENV":
             default_path = "./logging.dev.yaml"

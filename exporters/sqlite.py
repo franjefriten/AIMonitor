@@ -1,13 +1,10 @@
 from exporters.base import BaseDatabaseExporter
-from configs.config import get_settings
 from utils.logger import logger
 from core.event import BaseSignal, SignalType, MCPEvent, LogEvent, MetricEvent, SpanEvent
 from typing import List
 import json
 from datetime import datetime
 from enum import Enum
-
-settings = get_settings()
 
 SIGNAL_TABLE_SUFFIX = {
     SignalType.EVENT: "event",
@@ -27,7 +24,7 @@ class SQLiteExporter(BaseDatabaseExporter):
 
     SUPPORTED_SIGNALS = {SignalType.EVENT, SignalType.LOG, SignalType.METRIC, SignalType.SPAN}
 
-    def __init__(self, dsn: str = settings.sqlite_uri, table_name: str = "aimonitor"):
+    def __init__(self, dsn: str, table_name: str = "aimonitor"):
         super().__init__(dsn=dsn)
         try:
             import aiosqlite

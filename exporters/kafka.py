@@ -51,7 +51,7 @@ class KafkaExporter(BaseExporter):
                 max_workers=max_workers,
                 batch_size=batch_size,
                 buffer_timeout=buffer_timeout,
-                acks="all"
+                acks=self.kafka_configs.get("acks", "all")
             )
             logger.info("Kafka producer initialized correctly")
         except Exception:

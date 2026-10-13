@@ -20,7 +20,7 @@ class TelemetryProducer:
         service_name: str = "aimonitor-sdk",
     ):
         settings = get_settings()
-        self.enabled = settings.inner_telemetry if enabled is None else enabled
+        self.enabled = settings.telemetry.inner_telemetry if enabled is None else enabled
         self.service_name = service_name
         self.tracer = None
         self.meter = None
@@ -37,7 +37,7 @@ class TelemetryProducer:
         - enabled=True: initialize OpenTelemetry if available.
         """
         settings = get_settings()
-        desired_enabled = settings.inner_telemetry if enabled is None else enabled
+        desired_enabled = settings.telemetry.inner_telemetry if enabled is None else enabled
 
         if service_name:
             self.service_name = service_name

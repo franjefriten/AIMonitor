@@ -60,6 +60,9 @@ async def test_health_check_event_emission():
     # produce a second event in parallel.
     exporter = SpyExporter()
 
+    # Clear captured events before manual healthcheck to isolate the test
+    captured.clear()
+    
     # Perform the health check
     await exporter.healthcheck()
 
