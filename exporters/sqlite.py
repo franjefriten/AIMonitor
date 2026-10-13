@@ -117,9 +117,9 @@ class SQLiteExporter(BaseDatabaseExporter):
             success = False
         return success
     
-    async def status(self) -> dict:
+    async def describe(self) -> dict:
         """
-        Returns the status of the SQLiteExporter, including the connection status and database file path.
+        Return diagnostic details for the SQLiteExporter, including its database path.
         """
         if not self.client:
             return {"status": "unhealthy", "message": "SQLiteExporter is not connected."}
@@ -130,3 +130,20 @@ class SQLiteExporter(BaseDatabaseExporter):
             "database": self.dsn,
             "table_name": self.table_name,
         }
+
+    async def recover(self) -> bool:
+        """
+        Attempt to recover the SQLiteExporter. Recovery is considered successful if the SQLite client can be reinitialized.
+        """
+        try:
+            if not self.client:
+                try:
+                    import aiosqlite
+                    self.client = await aiosqlite.connect(self.dsn)
+                except ImportError as ie:
+                    logger.error(f"Failed to import aiosqlite for SQLiteExporter recovery: {ie}")
+                    return False
+            return True
+        except Exception as e:
+            logger.error(f"Recovery failed for SQLiteExporter: {e}")
+            return False

@@ -6,7 +6,7 @@ except ImportError as e:
     )
    
 from exporters.base import BaseExporter, with_retry
-from core.event import MCPEvent, BaseSignal, SignalType, HealthCheckEvent, HealthStatus
+from core.event import MCPEvent, BaseSignal, SignalType
 
 import socket
 import hashlib
@@ -136,23 +136,15 @@ class KafkaExporter(BaseExporter):
             success = False
             error_message = str(e)
 
-        from telemetry.api import internal_telemetry_manager
-        internal_telemetry_manager.track_healthcheck(
-            "KafkaExporter",
-            success,
-            "Health check passed for KafkaExporter." if success else f"Health check failed for KafkaExporter: {error_message}",
-            {"topic": "aimonitor-healthcheck"},
-        )
-
         if success:
             logger.info("Health check passed for KafkaExporter.")
         else:
             logger.error("Health check failed for KafkaExporter.")
         return success
     
-    async def status(self) -> dict:
+    async def describe(self) -> dict:
         """
-        Returns the status of the KafkaExporter, including the connection status and broker information.
+        Return diagnostic details for the KafkaExporter, including broker information.
         """
         try:
             metadata = await self.producer.get_metadata(timeout=5.0)
@@ -168,3 +160,16 @@ class KafkaExporter(BaseExporter):
                 "status": "unhealthy",
                 "message": f"Failed to retrieve Kafka metadata: {e}",
             }
+
+    async def recover(self) -> bool:
+        """
+        Attempt to recover the KafkaExporter. Recovery is considered successful if the Kafka producer can be reinitialized.
+        """
+        try:
+            if not self.producer:
+                from confluent_kafka import Producer
+                self.producer = Producer(self.config)
+            return True
+        except Exception as e:
+            logger.error(f"Recovery failed for KafkaExporter: {e}")
+            return False

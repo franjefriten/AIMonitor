@@ -1,5 +1,5 @@
 from exporters.base import BaseExporter, HTTPBaseExporter
-from core.event import BaseSignal, SignalType, HealthCheckEvent, HealthStatus
+from core.event import BaseSignal, SignalType
 from utils.logger import logger
 import httpx
 import asyncio
@@ -53,23 +53,15 @@ class WebhookExporter(HTTPBaseExporter):
             success = False
             error_message = str(e)
 
-        from telemetry.api import internal_telemetry_manager
-        internal_telemetry_manager.track_healthcheck(
-            "WebhookExporter",
-            success,
-            "Health check passed for WebhookExporter." if success else f"Health check failed for WebhookExporter: {error_message}",
-            {"url": self.url}
-        )
-
         if success:
             logger.info("Health check passed for WebhookExporter.")
         else:
             logger.error("Health check failed for WebhookExporter.")
         return success
 
-    async def status(self) -> dict:
+    async def describe(self) -> dict:
         """
-        Returns the status of the WebhookExporter, including the URL and connection status.
+        Return diagnostic details for the WebhookExporter, including the URL and connection status.
         """
         if not self.client:
             return {"status": "unhealthy", "message": "WebhookExporter is not connected."}
@@ -81,3 +73,15 @@ class WebhookExporter(HTTPBaseExporter):
             "headers": self.headers,
             "auth": str(self.auth) if self.auth else None,
         }
+    
+    async def recover(self) -> bool:
+        """
+        Attempt to recover the WebhookExporter. Recovery is considered successful if the HTTP client can be reinitialized.
+        """
+        try:
+            if not self.client:
+                self.client = httpx.AsyncClient()
+            return True
+        except Exception as e:
+            logger.error(f"Recovery failed for WebhookExporter: {e}")
+            return False

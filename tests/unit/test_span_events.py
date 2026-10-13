@@ -22,7 +22,7 @@ async def test_emit_span_event():
         async def healthcheck(self):
             pass
 
-        async def status(self):
+        async def describe(self):
             pass
 
     registry.register(exporter=SpyExporter())
@@ -68,7 +68,7 @@ async def test_emit_multi_span_event():
         async def healthcheck(self):
             pass
 
-        async def status(self):
+        async def describe(self):
             pass
 
     registry.register(exporter=SpyExporter())

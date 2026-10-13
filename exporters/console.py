@@ -64,13 +64,18 @@ class ConsoleExporter(BaseExporter):
             self.stream.flush()
         return True
     
-    async def status(self) -> dict:
+    async def describe(self) -> dict:
         """
-        Get the status of the ConsoleExporter. Since this exporter writes to the console, it is always considered healthy.
+        Return diagnostic details for the ConsoleExporter.
         """
         return {
             "status": "healthy",
             "message": "ConsoleExporter is operational.",
             "stream": str(getattr(self.stream, "name", self.stream.__class__.__name__)),
         }
-        
+    
+    async def recover(self) -> bool:
+        """
+        Attempt to recover the ConsoleExporter. Since this exporter writes to the console, recovery is always considered successful.
+        """
+        return True

@@ -2,7 +2,8 @@ import os
 import json
 from typing import Any, List, Optional
 
-from core.event import HealthCheckEvent, HealthStatus, MCPEvent
+from configs.config import get_settings
+from core.event import MCPEvent
 from exporters.base import BaseExporter
 from utils.logger import logger
 
@@ -107,13 +108,6 @@ class OpenTelemetryExporter(BaseExporter):
     async def healthcheck(self) -> bool:
         if not self.enabled or not self.tracer:
             logger.warning("OpenTelemetry MCP exporter healthcheck skipped because exporter is disabled or uninitialized.")
-            from telemetry.api import internal_telemetry_manager
-            internal_telemetry_manager.track_healthcheck(
-                "OpenTelemetryExporter",
-                False,
-                "OpenTelemetry MCP exporter is disabled or uninitialized.",
-                {"service_name": self.service_name, "span_prefix": self.span_prefix},
-            )
             return False
 
         try:
@@ -123,26 +117,12 @@ class OpenTelemetryExporter(BaseExporter):
                 span.set_attribute("mcp.service_name", self.service_name or "unknown")
                 span.set_attribute("mcp.exporter", "opentelemetry")
             logger.debug("OpenTelemetry MCP exporter healthcheck passed for service %s", self.service_name)
-            from telemetry.api import internal_telemetry_manager
-            internal_telemetry_manager.track_healthcheck(
-                "OpenTelemetryExporter",
-                True,
-                "OpenTelemetry MCP exporter health check passed.",
-                {"service_name": self.service_name, "span_prefix": self.span_prefix},
-            )
             return True
         except Exception as exc:
             logger.error("OpenTelemetry MCP exporter healthcheck failed: %s", exc)
-            from telemetry.api import internal_telemetry_manager
-            internal_telemetry_manager.track_healthcheck(
-                "OpenTelemetryExporter",
-                False,
-                f"OpenTelemetry MCP exporter health check failed: {exc}",
-                {"service_name": self.service_name, "span_prefix": self.span_prefix},
-            )
             return False
 
-    async def status(self) -> dict:
+    async def describe(self) -> dict:
         return {
             "status": "healthy" if self.enabled and self.tracer is not None else "unhealthy",
             "message": "OpenTelemetry MCP exporter is operational." if self.enabled and self.tracer is not None else "OpenTelemetry MCP exporter is not operational.",
@@ -151,3 +131,16 @@ class OpenTelemetryExporter(BaseExporter):
             "span_prefix": self.span_prefix,
             "tracer_initialized": self.tracer is not None,
         }
+    
+    async def recover(self) -> bool:
+        """
+        Attempt to recover the OpenTelemetry MCP exporter. Recovery is considered successful if the tracer can be reinitialized.
+        """
+        try:
+            if not self.tracer:
+                from opentelemetry import trace
+                self.tracer = trace.get_tracer(__name__)
+            return True
+        except Exception as e:
+            logger.error(f"Recovery failed for OpenTelemetry MCP exporter: {e}")
+            return False

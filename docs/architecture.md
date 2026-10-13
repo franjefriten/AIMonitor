@@ -70,13 +70,16 @@ AIMonitor separates two observability flows:
 
 1. Internal SDK telemetry
    - lives in `telemetry/api.py`
-   - tracks library health and internal behavior
+   - `TelemetryProducer` records internal events, exporter healthchecks, and metrics
+   - `TelemetryConsumer` reads local telemetry availability and registry-owned SDK readiness
    - can be enabled by `AIMONITOR_INNER_TELEMETRY`
 
 2. MCP event export
    - uses the exporter registry
    - sends actual tool usage events and metrics
    - can be exported to OpenTelemetry or other supported backends
+
+The OpenTelemetry integration is write-oriented. AIMonitor does not expose a generic query API for traces or metrics stored in an external backend; backend queries must use that backend's own client or HTTP API.
 
 ## Configuration
 
