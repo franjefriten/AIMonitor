@@ -92,6 +92,70 @@ exporters:
 
 
 @pytest.mark.asyncio
+async def test_kafka_settings_propagate_to_runtime_and_producer_conf(tmp_path):
+    config_path = tmp_path / "kafka_runtime_aimonitor.yaml"
+    config_path.write_text(
+        """
+exporters:
+  kafka:
+    enabled: true
+    bootstrap_servers: "localhost:9092"
+    security_protocol: "SASL_SSL"
+    max_in_flight_requests_per_connection: 3
+    buffer_timeout: 2.5
+    sasl:
+      mechanism: "PLAIN"
+      username: "demo-user"
+      password: "demo-pass"
+    producer:
+      acks: all
+      compression: gzip
+      linger_ms: 25
+      max_workers: 8
+      batch_size: 1024
+      retries: 7
+""".strip()
+    )
+
+    settings = AIMonitorSettings()
+    await settings.load_from_yaml(config_path)
+
+    assert settings.kafka_enabled is True
+    assert settings.kafka_bootstrap_servers == "localhost:9092"
+    assert settings.kafka_security_protocol == "SASL_SSL"
+    assert settings.kafka_max_in_flight_requests_per_connection == 3
+    assert settings.kafka_buffer_timeout == 2.5
+    assert settings.kafka_producer_acks == "all"
+    assert settings.kafka_compression_type == "gzip"
+    assert settings.kafka_producer_linger_ms == 25
+    assert settings.kafka_max_workers == 8
+    assert settings.kafka_batch_size == 1024
+    assert settings.kafka_retry_policy == 7
+
+    assert settings.exporters.kafka.max_in_flight_requests_per_connection == 3
+    assert settings.exporters.kafka.buffer_timeout == 2.5
+    assert settings.exporters.kafka.producer.acks == "all"
+    assert settings.exporters.kafka.producer.compression == "gzip"
+    assert settings.exporters.kafka.producer.linger_ms == 25
+    assert settings.exporters.kafka.producer.max_workers == 8
+    assert settings.exporters.kafka.producer.batch_size == 1024
+    assert settings.exporters.kafka.producer.retries == 7
+
+    kafka_conf = settings.get_kafka_config()
+    assert kafka_conf["bootstrap.servers"] == "localhost:9092"
+    assert kafka_conf["security.protocol"] == "SASL_SSL"
+    assert kafka_conf["max.in.flight.requests.per.connection"] == 3
+    assert kafka_conf["linger.ms"] == 25
+    assert kafka_conf["compression.type"] == "gzip"
+    assert kafka_conf["retries"] == 7
+    assert kafka_conf["sasl.mechanism"] == "PLAIN"
+    assert kafka_conf["sasl.username"] == "demo-user"
+    assert kafka_conf["sasl.password"] == "demo-pass"
+
+    await registry.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_settings_reset_restores_defaults_after_file_load(tmp_path):
     config_path = tmp_path / "loaded.yaml"
     config_path.write_text(
