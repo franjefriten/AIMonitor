@@ -1,30 +1,30 @@
-# Reglas para LLM
+# AI Agent Rules
 
-Estas reglas aplican al trabajo de asistentes de IA en este repositorio.
+These rules apply to the work of AI assistants in software projects.
 
-## Principios de colaboración
+## Collaboration principles
 
-- El código pertenece al desarrollador. El asistente debe ayudarle a entender, diseñar y mejorar el sistema, no sustituir su trabajo.
-- Antes de editar, leer el código actual y formular una hipótesis concreta sobre el bug o el cambio necesario.
-- Aplicar parches pequeños y localizados sobre la implementación existente.
-- No reescribir una función o un subsistema desde cero si un parche incremental resuelve el problema.
-- Preservar las decisiones de diseño, nombres públicos, contratos y estructura existentes salvo que el cambio sea imprescindible.
-- Si la solución requiere una modificación estructural o afecta a varias capas, explicarlo antes de aplicarla y dividirla en pasos revisables.
-- No corregir bugs no relacionados sin notificarlos primero.
-- Si una implementación del usuario es incompleta pero válida como primer acercamiento, mejorarla progresivamente en lugar de reemplazarla.
-- No borrar comentarios aclarativos del desarrollador; conservarlos al aplicar parches y reponerlos si un cambio los elimina accidentalmente.
+- The code belongs to the developer. The assistant should help understand, design, and improve the system without replacing the developer's work.
+- Before editing, read the current implementation and form a concrete hypothesis about the bug or required change.
+- Apply small, targeted patches to the existing implementation.
+- Do not rewrite a function or subsystem from scratch when an incremental fix resolves the issue.
+- Preserve existing design decisions, public names, contracts, and structure unless a change is truly necessary.
+- If the solution requires a structural change or spans multiple layers, explain it before proceeding and break it into reviewable steps.
+- Do not fix unrelated bugs without notifying the user first.
+- If the user's implementation is incomplete but valid as an initial approach, improve it gradually instead of replacing it outright.
+- Do not remove clarifying comments from the developer; keep them when patching and restore them if a change accidentally deletes them.
 
-## Cambios y validación
+## Changes and validation
 
-- Antes de editar, revisar también los cambios recientes del usuario y no sobrescribirlos.
-- Después de cada parche sustancial, ejecutar primero el test o la comprobación más cercana al código modificado.
-- Mantener los tests alineados con el contrato actual, pero no ocultar incompatibilidades cambiando expectativas sin explicarlo.
-- Informar de los riesgos restantes, los cambios grandes y cualquier validación que no haya podido ejecutarse.
-- No crear commits ni revertir cambios del usuario salvo petición explícita.
+- Before editing, review recent user changes as well and avoid overwriting them.
+- After each substantial patch, run the smallest relevant test or validation closest to the changed code.
+- Keep tests aligned with the current contract, but do not hide incompatibilities by changing expectations without explanation.
+- Report remaining risks, major changes, and any validation that could not be executed.
+- Do not create commits or revert user changes unless explicitly requested.
 
-## Healthchecks y recovery
+## Health checks and recovery
 
-- Mantener separadas las responsabilidades de actualizar snapshots, detectar/publicar transiciones y escribir logs.
-- La detección de una transición debe comparar el snapshot anterior con el nuevo antes de sobrescribirlo.
-- El recovery debe evolucionar mediante parches sobre el flujo existente; no debe reescribirse completo sin avisar y acordar el alcance.
-- Un recovery exitoso debe distinguir entre que `recover()` termine bien y que un healthcheck posterior confirme el estado saludable.
+- Keep responsibilities separate for updating snapshots, detecting/publishing transitions, and writing logs.
+- Transition detection must compare the previous snapshot with the new one before overwriting it.
+- Recovery should evolve through incremental patches to the existing flow; it should not be rewritten in full without warning and agreement on scope.
+- A successful recovery must distinguish between `recover()` completing successfully and a later health check confirming the system is healthy again.
