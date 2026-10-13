@@ -59,9 +59,9 @@ class WebhookExporter(HTTPBaseExporter):
             logger.error("Health check failed for WebhookExporter.")
         return success
 
-    async def status(self) -> dict:
+    async def describe(self) -> dict:
         """
-        Returns the status of the WebhookExporter, including the URL and connection status.
+        Return diagnostic details for the WebhookExporter, including the URL and connection status.
         """
         if not self.client:
             return {"status": "unhealthy", "message": "WebhookExporter is not connected."}

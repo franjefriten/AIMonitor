@@ -44,7 +44,7 @@ async def test_health_check_event_emission():
         async def recover(self):
             return True
 
-        async def status(self):
+        async def describe(self):
             return {
                 "status": HealthStatus.HEALTHY,
                 "message": "Exporter is healthy and connected to the destination.",
@@ -76,7 +76,7 @@ async def test_base_healthcheck_wraps_custom_healthcheck_and_emits_telemetry(mon
         async def healthcheck(self):
             return True
 
-        async def status(self):
+        async def describe(self):
             return {"status": "healthy"}
 
         async def recover(self):
@@ -119,7 +119,7 @@ async def test_healthcheck_false_populates_snapshot(monkeypatch):
         async def healthcheck(self):
             return False
 
-        async def status(self):
+        async def describe(self):
             return {"status": "unhealthy"}
 
         async def recover(self):
@@ -163,7 +163,7 @@ async def test_healthcheck_failure_populates_snapshot(monkeypatch):
         async def healthcheck(self):
             raise Exception("Healthcheck failed")
 
-        async def status(self):
+        async def describe(self):
             return {"status": "unhealthy"}
 
         async def recover(self):
@@ -213,7 +213,7 @@ async def test_consecutive_success_and_fail_healthchecks(monkeypatch):
             else:
                 return False
 
-        async def status(self):
+        async def describe(self):
             return {"status": "unhealthy"}
 
         async def recover(self):
@@ -256,7 +256,7 @@ async def test_health_status_transition(monkeypatch):
         async def healthcheck(self):
             return self.healthy
 
-        async def status(self):
+        async def describe(self):
             return {"status": "unhealthy"}
 
         async def recover(self):
@@ -351,7 +351,7 @@ async def test_health_recovery(monkeypatch):
         async def healthcheck(self):
             return self.healthy
 
-        async def status(self):
+        async def describe(self):
             return {"status": "unhealthy"}
 
         async def recover(self):
@@ -405,7 +405,7 @@ async def test_health_recovery_failed(monkeypatch):
         async def healthcheck(self):
             return self.healthy
 
-        async def status(self):
+        async def describe(self):
             return {"status": "unhealthy"}
 
         async def recover(self):
@@ -455,7 +455,7 @@ async def test_health_recovery_retries_until_success(monkeypatch):
         async def healthcheck(self):
             return self.healthy
 
-        async def status(self):
+        async def describe(self):
             return {"status": "unhealthy"}
 
         async def recover(self):
@@ -502,7 +502,7 @@ async def test_health_recovery_timeout_marks_exporter_as_failure():
         async def healthcheck(self):
             return False
 
-        async def status(self):
+        async def describe(self):
             return {"status": "unhealthy"}
 
         async def recover(self):
@@ -528,3 +528,34 @@ async def test_health_recovery_timeout_marks_exporter_as_failure():
     assert recovered is False
     assert exporter.recover_calls == 1
     assert registry._health.exporters[registry._snapshot_key(exporter)].status == HealthStatus.FAILURE
+
+
+@pytest.mark.asyncio
+async def test_readiness_uses_cached_lifecycle_snapshot_without_describe(monkeypatch):
+    class LifecycleExporter(BaseExporter):
+        async def export_batch(self, event_batch):
+            pass
+
+        async def healthcheck(self):
+            return True
+
+        async def describe(self):
+            raise AssertionError("readiness must not call describe")
+
+        async def recover(self):
+            return True
+
+    registry = ExporterRegistry()
+    monkeypatch.setattr(registry, "_start_healthcheck_worker", lambda: None)
+    exporter = LifecycleExporter()
+    registry.register(exporter)
+
+    starting = await get_readiness()
+    assert starting["status"] == SDKHealthStatus.STARTING.value
+    assert starting["exporters"]["LifecycleExporter"]["status"] == HealthStatus.STARTING.value
+
+    await registry._run_healthcheck(exporter)
+
+    healthy = await get_readiness()
+    assert healthy["status"] == SDKHealthStatus.HEALTHY.value
+    assert healthy["exporters"]["LifecycleExporter"]["status"] == HealthStatus.HEALTHY.value

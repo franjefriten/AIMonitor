@@ -164,11 +164,11 @@ def test_track_system_health_snapshot_reports_summary_for_all_exporters():
     fake_module, _, _ = _build_fake_opentelemetry_module()
 
     class HealthyExporter:
-        async def status(self):
+        async def describe(self):
             return {"status": "healthy", "message": "ok"}
 
     class UnhealthyExporter:
-        async def status(self):
+        async def describe(self):
             return {"status": "unhealthy", "message": "down"}
 
     with patch.dict("sys.modules", {"opentelemetry": fake_module}):
@@ -188,11 +188,11 @@ def test_get_system_health_uses_explicit_sdk_health_enum():
     fake_module, _, _ = _build_fake_opentelemetry_module()
 
     class HealthyExporter:
-        async def status(self):
+        async def describe(self):
             return {"status": "healthy", "message": "ok"}
 
     class UnhealthyExporter:
-        async def status(self):
+        async def describe(self):
             return {"status": "unhealthy", "message": "down"}
 
     with patch.dict("sys.modules", {"opentelemetry": fake_module}):

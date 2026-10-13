@@ -17,12 +17,12 @@ readiness = await get_readiness()
 {"status": "alive"}
 ```
 
-`get_readiness()` asks the registered exporters for their status and returns an aggregate result:
+`get_readiness()` returns the latest cached snapshot maintained by the `ExporterRegistry`. It does not call exporter healthchecks or diagnostic methods during the request:
 
 ```json
 {
   "status": "healthy",
-  "overall": "healthy",
+  "checked_at": "2026-10-13T12:00:00+00:00",
   "summary": {
     "total_exporters": 1,
     "healthy_count": 1,
@@ -32,14 +32,15 @@ readiness = await get_readiness()
     {
       "name": "PrometheusExporter",
       "status": "healthy",
-      "message": "Exporter is operational.",
-      "details": {}
+      "message": "Health check completed."
     }
   ]
 }
 ```
 
-Possible aggregate statuses are `healthy`, `degraded`, `unhealthy`, and `empty`.
+Possible aggregate statuses are `healthy`, `degraded`, `down`, `starting`, and `empty`.
+
+The registry snapshot is the source of truth for health. Exporters may implement `describe()` to expose backend-specific diagnostic information, but that method does not determine readiness.
 
 ## FastAPI integration
 
@@ -84,28 +85,29 @@ The same functions can be connected to Starlette, Flask through an adapter, or a
 - Do not expose credentials or unsanitized configuration in health responses.
 - Do not add a public reload endpoint unless it is explicitly authenticated and required by the host application.
 
-## How to write healthchecks for custom exporters
+## How to implement a custom exporter
 
-AIMonitor allows developers to create their own exporters as one of its main features as long as they follow the class inherits from `BaseExporter`. When writing the mandatory `healthcheck` method, users must always comply to the following contract
+A custom exporter must implement `export_batch()`, `healthcheck()`, `describe()`, and `recover()`:
 
-* When the function returns `True`, AIMonitor will send a `HEALTHY` status event under the hood
-* When the function returns `False`, AIMonitor will send a `DOWN` status event. Then, AIMonitor will attempt to recover the exporter and send a `RECOVERING` status event.
-* When the function raises an unexpected error, AIMonitor will catch it an emit a `FAILURE` status event. Always make sure to write solid code when to avoid this scenario.
-* If a healthcheck exceeds the declared interval in the YAML/JSON file or env variables, AIMonitor will interpret the exporter failed and emit `FAILURE` status event	
+```python
+from exporters.base import BaseExporter
 
-```Python
-from expoerters.base import BaseExporter
 
 class CustomExporter(BaseExporter):
+  async def export_batch(self, event_batch):
+    ...
 
-  async def healthcheck(self):
-    try:
-	    if ...:
-	    	return True
-		else:
-      	   	return False
-	except:
-		# so somethinf
+  async def healthcheck(self) -> bool:
+    # Return True only when the exporter can perform its job.
+    return True
+
+  async def describe(self) -> dict:
+    # Diagnostic data only; this does not control readiness.
+    return {"destination": "custom-backend"}
+
+  async def recover(self) -> bool:
+    # Reconnect or restore local exporter resources.
+    return True
 ```
 
-dfsfsda
+The registry maps healthcheck results to snapshots: `True` becomes `healthy`, `False` becomes `down`, and an exception or timeout becomes `failure`. Recovery is followed by another healthcheck before the exporter can become `healthy` again.

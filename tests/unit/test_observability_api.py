@@ -23,7 +23,7 @@ async def test_observability_api_emits_event_log_and_metric_signals():
         async def healthcheck(self):
             pass
 
-        async def status(self):
+        async def describe(self):
             pass
 
         async def recover(self):

@@ -123,7 +123,7 @@ class OpenTelemetryExporter(BaseExporter):
             logger.error("OpenTelemetry MCP exporter healthcheck failed: %s", exc)
             return False
 
-    async def status(self) -> dict:
+    async def describe(self) -> dict:
         return {
             "status": "healthy" if self.enabled and self.tracer is not None else "unhealthy",
             "message": "OpenTelemetry MCP exporter is operational." if self.enabled and self.tracer is not None else "OpenTelemetry MCP exporter is not operational.",

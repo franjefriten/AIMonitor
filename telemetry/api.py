@@ -146,17 +146,17 @@ class InternalTelemetryManager:
 
         for exporter in exporters:
             exporter_name = exporter.__class__.__name__
-            status_payload = {"status": "unhealthy", "message": "status unavailable"}
+            status_payload = {"status": "unavailable", "message": "description unavailable"}
             try:
-                maybe_status = exporter.status()
-                if hasattr(maybe_status, "__await__"):
-                    status_payload = await maybe_status
+                maybe_description = exporter.describe()
+                if hasattr(maybe_description, "__await__"):
+                    status_payload = await maybe_description
                 else:
-                    status_payload = maybe_status
+                    status_payload = maybe_description
                 if not isinstance(status_payload, dict):
-                    status_payload = {"status": "unhealthy", "message": str(status_payload)}
+                    status_payload = {"status": "unavailable", "message": str(status_payload)}
             except Exception as exc:
-                status_payload = {"status": "unhealthy", "message": str(exc)}
+                status_payload = {"status": "unavailable", "message": str(exc)}
 
             raw_status = status_payload.get("status", "unhealthy")
             if hasattr(raw_status, "value"):

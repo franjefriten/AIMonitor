@@ -64,9 +64,9 @@ class ConsoleExporter(BaseExporter):
             self.stream.flush()
         return True
     
-    async def status(self) -> dict:
+    async def describe(self) -> dict:
         """
-        Get the status of the ConsoleExporter. Since this exporter writes to the console, it is always considered healthy.
+        Return diagnostic details for the ConsoleExporter.
         """
         return {
             "status": "healthy",

@@ -17,7 +17,7 @@ async def test_tool_monitoring_workflow():
             captured_events.extend(event_batch)
         async def healthcheck(self):
             pass
-        async def status(self):
+        async def describe(self):
             pass
         async def recover(self):
             return True

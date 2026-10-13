@@ -16,7 +16,7 @@ async def test_exporter_on_successful_events_batches():
             return await super().export_batch(event_batch)
         async def healthcheck(self):
             return True
-        async def status(self):
+        async def describe(self):
             return {
                 "status": "healthy",
                 "message": "Exporter is healthy and connected to the destination.",
@@ -63,7 +63,7 @@ async def test_exporter_auto_removal_on_failure():
         async def healthcheck(self):
             return False
 
-        async def status(self):
+        async def describe(self):
             return {"status": "unhealthy", "message": "Service Down"}
         
         async def recover(self):
@@ -95,7 +95,7 @@ async def test_registry_tracks_export_failure_and_shutdown_status():
         async def healthcheck(self):
             return True
 
-        async def status(self):
+        async def describe(self):
             return {"status": "healthy"}
         
         async def recover(self):

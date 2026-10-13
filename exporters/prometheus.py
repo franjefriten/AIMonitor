@@ -82,9 +82,9 @@ class PrometheusExporter(BaseExporter):
 
         return success
 
-    async def status(self) -> dict:
+    async def describe(self) -> dict:
         """
-        Get the status of the PrometheusExporter. This exporter is considered healthy if it can start the HTTP server and expose metrics.
+        Return diagnostic details for the PrometheusExporter.
         """
         return {
             "status": "healthy" if self._server_started else "unhealthy",

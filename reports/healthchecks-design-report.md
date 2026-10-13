@@ -18,13 +18,15 @@ La API pública ya separa dos conceptos importantes:
 - `get_liveness()`: debe ser barato y no contactar con dependencias externas.
 - `get_readiness()`: informa sobre los exporters registrados y sus dependencias.
 
-Actualmente `get_readiness()` obtiene el estado llamando a `status()` sobre los exporters en el momento de la consulta. Esto funciona para una primera versión, pero tiene varias limitaciones:
+La implementación actual de `get_readiness()` lee el snapshot cacheado del `ExporterRegistry` en el momento de la consulta. Esto evita probes adicionales y mantiene una única fuente de verdad para el estado.
+
+La primera versión obtenía el estado llamando a `status()` sobre los exporters en cada consulta, pero ese enfoque tenía varias limitaciones:
 
 - Cada petición de readiness puede ejecutar trabajo adicional.
 - No existe un historial del último healthcheck.
 - No se distingue entre un exporter que nunca ha sido comprobado y uno que acaba de recuperarse.
 - No se conservan contadores de fallos consecutivos.
-- El estado depende de la implementación concreta de `status()` de cada exporter.
+- El estado dependía de la implementación concreta de `status()` de cada exporter.
 
 El worker de healthchecks está en `core/registry.py`, que también controla el registro, los workers de exportación, la cola y el cierre de exporters. Por tanto, el registry es el lugar que conoce todo el ciclo de vida.
 
@@ -138,17 +140,17 @@ Un snapshot podría tener esta forma:
 }
 ```
 
-El `status()` de cada exporter puede seguir existiendo para detalles propios, pero no debería ser la fuente del historial del registry. El worker debe registrar el resultado después de cada healthcheck.
+El método `describe()` de cada exporter puede devolver detalles propios, pero no es la fuente del historial ni del estado del registry. El worker debe registrar el resultado después de cada healthcheck.
 
-## 6. Separar `status()` de `healthcheck()`
+## 6. Separar `describe()` de `healthcheck()`
 
 Conviene mantener responsabilidades diferentes:
 
 - `healthcheck()`: realiza una comprobación activa y puede contactar con la dependencia.
-- `status()`: devuelve información del exporter.
+- `describe()`: devuelve información diagnóstica del exporter.
 - `health_snapshot()`: devuelve el estado histórico mantenido por el registry.
 
-En particular, `get_readiness()` debería leer el snapshot cacheado en lugar de lanzar probes nuevos. Esto hace que la ruta sea predecible y barata.
+En particular, `get_readiness()` debe leer el snapshot cacheado en lugar de lanzar probes nuevos o invocar `describe()`. Esto hace que la ruta sea predecible y barata.
 
 Una consecuencia operativa es que readiness puede mostrar un resultado ligeramente antiguo. Esa antigüedad es controlable exponiendo `last_check_finished_at` y, si se desea, un `stale: true` cuando el resultado supere una edad máxima.
 
@@ -422,25 +424,27 @@ InternalTelemetryManager
 
 The healthcheck implementation is functionally advanced enough for a focused review, but the branch should not be merged until the complete test suite can be collected and executed successfully.
 
-### Current merge blocker
+### Test collection issue
 
-The full pytest run currently fails during test collection because two modules share the same basename:
+The full pytest run initially failed during test collection because two modules shared the same basename:
 
 - `tests/integration/test_kafka_exporter.py`
 - `tests/unit/test_kafka_exporter.py`
 
-The smallest fix is to rename the integration module, for example to `test_kafka_exporter_integration.py`. After that change, the complete suite must be run again. The integration test also requires a Kafka broker, so the test environment and its dependency must be available when integration tests are enabled.
+The integration module has now been renamed to `test_kafka_exporter_integration.py`, so collection succeeds. The integration test still requires a Kafka broker when integration tests are enabled.
+
+The current full-suite run collects 51 tests and reports 44 passed, 3 failed, and 3 skipped. The remaining failures are unrelated to the healthcheck contract: the Kafka exporter passes an unsupported `acks` argument to the installed `AIOProducer`, and the Prometheus integration tests are inconsistent with the exporter's current supported signal types.
 
 ### Healthcheck priorities before calling the design stable
 
-1. Make the registry snapshot the single source of truth for readiness. The registry maintains cached health snapshots, while `telemetry.api.get_readiness()` still queries each exporter's `status()` directly. These two paths can report different states and should be unified.
+1. Keep the registry snapshot as the single source of truth for readiness. `telemetry.api.get_readiness()` now reads the cached snapshot instead of querying each exporter directly. Exporter `describe()` results remain diagnostic and must not determine health.
 2. Define the distinction between `DOWN` and `FAILURE` explicitly. The decision must be consistent across `core/registry.py`, tests, telemetry, and this documentation.
 3. Add contract tests for the complete lifecycle: `STARTING -> HEALTHY`, `HEALTHY -> DOWN -> RECOVERING -> HEALTHY`, recovery exhaustion, mixed healthy and failed exporters, shutdown, and multiple exporters of the same class.
 4. Review the operational documentation and examples before release. The healthcheck documentation should contain a valid custom exporter example and describe the actual timeout, recovery, readiness, and snapshot behavior.
 
 ### Merge recommendation
 
-Do not merge while test collection is broken. Once the duplicate test module is renamed and the full suite passes, the implementation can be merged as an incremental healthcheck foundation, with readiness unification and the additional lifecycle tests tracked as the next hardening step if they are not included in the same change.
+Do not merge until the remaining integration failures are either fixed or explicitly excluded from the branch contract. The healthcheck implementation itself passes the focused and unit test suites, and can be merged as an incremental foundation once the complete suite is green. Readiness unification, lifecycle coverage, and the `describe()` contract are now included in this change.
 
 La idea central es mantener una única fuente de verdad para el ciclo de vida: el registry. La API de health debe ser una vista segura y serializable de ese estado, y la recuperación debe ser una política explícita, limitada y observable.
 

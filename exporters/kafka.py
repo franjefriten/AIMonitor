@@ -142,9 +142,9 @@ class KafkaExporter(BaseExporter):
             logger.error("Health check failed for KafkaExporter.")
         return success
     
-    async def status(self) -> dict:
+    async def describe(self) -> dict:
         """
-        Returns the status of the KafkaExporter, including the connection status and broker information.
+        Return diagnostic details for the KafkaExporter, including broker information.
         """
         try:
             metadata = await self.producer.get_metadata(timeout=5.0)

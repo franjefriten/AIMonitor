@@ -124,9 +124,9 @@ class FileExporter(BaseExporter):
 
         return success
     
-    async def status(self) -> dict:
+    async def describe(self) -> dict:
         """
-        Returns the status of the FileExporter, including the current file being written to and its size.
+        Return diagnostic details for the FileExporter, including the current file and its size.
         """
         if not self.client:
             return {"status": "unhealthy", "message": "FileExporter is not connected."}
