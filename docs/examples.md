@@ -160,16 +160,26 @@ settings.sensitive_keys.add("custom_secret")
 Enable AIMonitor's own observability (separate from event export):
 
 ```python
-from telemetry.api import configure_internal_telemetry
+from telemetry.api import (
+    configure_internal_telemetry,
+    get_sdk_readiness,
+    get_telemetry_status,
+)
 
 # Enable internal traces
-manager = configure_internal_telemetry(
+producer = configure_internal_telemetry(
     enabled=True,
     service_name="aimonitor-sdk"
 )
 
-# Now AIMonitor itself emits spans to OTel
+# The producer emits spans and metrics to the configured OTel provider.
+
+# Consumers query local provider availability and SDK health snapshots.
+telemetry_status = get_telemetry_status()
+sdk_readiness = await get_sdk_readiness()
 ```
+
+The SDK does not query traces or metrics from an external OpenTelemetry backend. Use the backend-specific client or HTTP API for that operation.
 
 ## Webhook export
 

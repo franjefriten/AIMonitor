@@ -22,7 +22,7 @@ def _build_event(tool_name: str = "some_tool", status: str = "success", delta: f
         delta=delta,
         status=status,
         error="",
-        metadata="",
+        metadata={},
         result={},
     )
 

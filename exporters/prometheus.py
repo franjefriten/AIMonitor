@@ -1,7 +1,8 @@
 from typing import List, Optional
 from urllib.parse import urlparse
 
-from core.event import BaseSignal, SignalType, HealthCheckEvent, HealthStatus
+from configs.config import settings
+from core.event import BaseSignal, SignalType
 from exporters.base import BaseExporter
 from utils.logger import logger
 
@@ -79,18 +80,11 @@ class PrometheusExporter(BaseExporter):
             success = False
             error_message = str(e)
 
-        from telemetry.api import internal_telemetry_manager
-        internal_telemetry_manager.track_healthcheck(
-            "PrometheusExporter",
-            success,
-            "Health check passed for PrometheusExporter." if success else f"Health check failed for PrometheusExporter: {error_message}",
-            {"address": self.address, "port": self.port},
-        )
         return success
 
-    async def status(self) -> dict:
+    async def describe(self) -> dict:
         """
-        Get the status of the PrometheusExporter. This exporter is considered healthy if it can start the HTTP server and expose metrics.
+        Return diagnostic details for the PrometheusExporter.
         """
         return {
             "status": "healthy" if self._server_started else "unhealthy",
@@ -99,3 +93,15 @@ class PrometheusExporter(BaseExporter):
             "port": self.port,
             "registry": str(self.registry),
         }
+
+    async def recover(self) -> bool:
+        """
+        Attempt to recover the PrometheusExporter. Recovery is considered successful if the HTTP server can be started.
+        """
+        try:
+            if not self._server_started:
+                await self.connect()
+            return True
+        except Exception as e:
+            logger.error(f"Recovery failed for PrometheusExporter: {e}")
+            return False

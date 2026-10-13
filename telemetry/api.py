@@ -1,20 +1,15 @@
 import sys
 import os
-import asyncio
+import time
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Optional, Dict, Any
 from utils.logger import logger
 from configs.config import get_settings
+from core.event import HealthCheckSnapshot as HealthCheckEvent
 
 
-class SDKHealthStatus(str, Enum):
-    """Aggregate health state for the internal SDK health layer."""
-    HEALTHY = "healthy"
-    DEGRADED = "degraded"
-    UNHEALTHY = "unhealthy"
-    EMPTY = "empty"
-
-class InternalTelemetryManager:
+class TelemetryProducer:
     """
     Internal telemetry manager for the SDK.
     - Automatically detects if OpenTelemetry is available in the environment.
@@ -57,6 +52,10 @@ class InternalTelemetryManager:
         if self.enabled:
             self._initialize_otel()
 
+    def reset(self) -> None:
+        """Reset internal telemetry to the current settings without replacing the manager."""
+        self.configure()
+
     def _initialize_otel(self) -> None:
         """Checks and loads OpenTelemetry dynamically and securely."""
         try:
@@ -82,10 +81,11 @@ class InternalTelemetryManager:
             self.enabled = False
             logger.warning("Unexpected error initializing OpenTelemetry in the SDK: %s", e)
 
-    def track_event(self, event_name: str, attributes: Optional[Dict[str, Any]] = None) -> None:
+    def record_event(self, event_name: str, attributes: Optional[Dict[str, Any]] = None) -> None:
         """
-        Safely records an event or trace.
-        If telemetry is disabled or fails, the SDK execution continues normally.
+        Record an internal SDK event as a trace span on a best-effort basis.
+
+        Telemetry failures are isolated from the host application.
         """
         if not self.enabled or not self.tracer:
             return
@@ -103,15 +103,13 @@ class InternalTelemetryManager:
             # Absolute safety net: an internal telemetry failure never breaks the user's software
             sys.stderr.write(f"[SDK Telemetry Error] Failed to record event '{event_name}': {internal_error}\n")
 
-    def track_healthcheck(
+    async def record_exporter_healthcheck(
         self,
-        exporter_name: str,
-        healthy: bool,
-        message: str = "",
-        attributes: Optional[Dict[str, Any]] = None,
+        event: HealthCheckEvent,
+        attributes: Optional[Dict[str, Any]] = None
     ) -> None:
         """
-        Record an internal healthcheck result for a concrete exporter.
+        Record one internal healthcheck result for a concrete exporter.
 
         This is internal SDK observability, not a business-export event.
         Health results must be emitted to the internal telemetry channel only.
@@ -119,11 +117,7 @@ class InternalTelemetryManager:
         if not self.enabled or not self.tracer:
             return
 
-        payload = {
-            "exporter_name": exporter_name,
-            "healthy": bool(healthy),
-            "message": message,
-        }
+        payload = event.model_dump()
         if attributes:
             payload.update(attributes)
 
@@ -136,107 +130,12 @@ class InternalTelemetryManager:
                         span.set_attribute(str(key), str(value))
         except Exception as internal_error:
             sys.stderr.write(
-                f"[SDK Telemetry Error] Failed to record exporter healthcheck '{exporter_name}': {internal_error}\n"
+                f"[SDK Telemetry Error] Failed to record exporter healthcheck '{event.exporter_name}': {internal_error}\n"
             )
 
-    async def track_system_health_snapshot_async(self, exporters: list) -> Dict[str, Any]:
+    def record_metric(self, metric_name: str, value: int = 1, attributes: Optional[Dict[str, Any]] = None) -> None:
         """
-        Build a health summary for the active exporters and emit it to the internal telemetry
-        channel as a single SDK-internal signal.
-        """
-        snapshot = {
-            "total_exporters": 0,
-            "healthy_count": 0,
-            "unhealthy_count": 0,
-            "status": "healthy",
-            "exporters": [],
-        }
-
-        for exporter in exporters:
-            exporter_name = exporter.__class__.__name__
-            status_payload = {"status": "unhealthy", "message": "status unavailable"}
-            try:
-                maybe_status = exporter.status()
-                if hasattr(maybe_status, "__await__"):
-                    status_payload = await maybe_status
-                else:
-                    status_payload = maybe_status
-                if not isinstance(status_payload, dict):
-                    status_payload = {"status": "unhealthy", "message": str(status_payload)}
-            except Exception as exc:
-                status_payload = {"status": "unhealthy", "message": str(exc)}
-
-            raw_status = status_payload.get("status", "unhealthy")
-            if hasattr(raw_status, "value"):
-                raw_status = raw_status.value
-            exporter_entry = {
-                "name": exporter_name,
-                "status": str(raw_status).lower(),
-                "message": status_payload.get("message", ""),
-                "details": status_payload,
-            }
-            snapshot["exporters"].append(exporter_entry)
-            snapshot["total_exporters"] += 1
-
-            if exporter_entry["status"] == "healthy":
-                snapshot["healthy_count"] += 1
-            else:
-                snapshot["unhealthy_count"] += 1
-
-        if snapshot["unhealthy_count"] > 0:
-            snapshot["status"] = "degraded" if snapshot["healthy_count"] > 0 else "unhealthy"
-        elif snapshot["total_exporters"] == 0:
-            snapshot["status"] = "empty"
-
-        self.track_event(
-            "sdk.exporter.health.snapshot",
-            {
-                "total_exporters": snapshot["total_exporters"],
-                "healthy_count": snapshot["healthy_count"],
-                "unhealthy_count": snapshot["unhealthy_count"],
-                "status": snapshot["status"],
-            },
-        )
-        return snapshot
-
-    def track_system_health_snapshot(self, exporters: list) -> Dict[str, Any]:
-        """Convenience sync wrapper for non-async callers."""
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            return asyncio.run(self.track_system_health_snapshot_async(exporters))
-
-        raise RuntimeError("Use 'await track_system_health_snapshot_async(exporters)' when running in an event loop.")
-
-    async def get_system_health(self, exporters: list) -> Dict[str, Any]:
-        """
-        Return a structured SDK health snapshot built from exporter status payloads.
-        This is the canonical internal API for SDK health readout and can be consumed by
-        operators, debugging tools, or the registry health loop.
-        """
-        snapshot = await self.track_system_health_snapshot_async(exporters)
-        overall = SDKHealthStatus.HEALTHY.value
-        if snapshot["status"] == "degraded":
-            overall = SDKHealthStatus.DEGRADED.value
-        elif snapshot["status"] == "unhealthy":
-            overall = SDKHealthStatus.UNHEALTHY.value
-        elif snapshot["status"] == "empty":
-            overall = SDKHealthStatus.EMPTY.value
-
-        return {
-            "status": overall,
-            "overall": overall,
-            "summary": {
-                "total_exporters": snapshot["total_exporters"],
-                "healthy_count": snapshot["healthy_count"],
-                "unhealthy_count": snapshot["unhealthy_count"],
-            },
-            "exporters": snapshot["exporters"],
-        }
-
-    def track_metric_counter(self, metric_name: str, value: int = 1, attributes: Optional[Dict[str, Any]] = None) -> None:
-        """
-        Example for recording internal metrics (counters) optionally.
+        Record an internal counter metric on a best-effort basis.
         """
         if not self.enabled or not self.meter:
             return
@@ -252,10 +151,50 @@ class InternalTelemetryManager:
             sys.stderr.write(f"[SDK Telemetry Error] Failed to record metric '{metric_name}': {internal_error}\n")
 
 
-internal_telemetry_manager = InternalTelemetryManager()
+telemetry_producer = TelemetryProducer()
 
 
-def configure_internal_telemetry(enabled: Optional[bool] = None, service_name: Optional[str] = None) -> InternalTelemetryManager:
+class TelemetryConsumer:
+    """Read-only queries over local telemetry availability and SDK health."""
+
+    def __init__(self, producer: TelemetryProducer):
+        self._producer = producer
+        self._process_started_at = datetime.now(UTC)
+        self._process_started_monotonic = time.monotonic()
+
+    def get_telemetry_status(self) -> Dict[str, Any]:
+        """Return the local OpenTelemetry provider availability."""
+        return {
+            "enabled": self._producer.enabled,
+            "service_name": self._producer.service_name,
+            "tracer_available": self._producer.tracer is not None,
+            "meter_available": self._producer.meter is not None,
+        }
+
+    async def get_process_liveness(self) -> Dict[str, Any]:
+        """Return local process liveness without probing exporters or dependencies."""
+        process_id = os.getpid()
+        status = "alive" if process_id > 0 and not sys.is_finalizing() else "stopping"
+        return {
+            "status": status,
+            "component": "aimonitor-sdk",
+            "pid": process_id,
+            "started_at": self._process_started_at.isoformat(),
+            "uptime_seconds": max(0.0, time.monotonic() - self._process_started_monotonic),
+        }
+
+    async def get_sdk_readiness(self) -> Dict[str, Any]:
+        """Return the registry-owned SDK health snapshot."""
+        from core.registry import registry
+
+        snapshot = await registry.health_snapshot()
+        return snapshot.model_dump(mode="json")
+
+
+telemetry_consumer = TelemetryConsumer(telemetry_producer)
+
+
+def configure_internal_telemetry(enabled: Optional[bool] = None, service_name: Optional[str] = None) -> TelemetryProducer:
     """
     Public helper to configure SDK internal telemetry from user modules.
 
@@ -264,5 +203,19 @@ def configure_internal_telemetry(enabled: Optional[bool] = None, service_name: O
       - configure_internal_telemetry(enabled=True, service_name="my-service")
       - configure_internal_telemetry()  # uses AIMonitor settings
     """
-    internal_telemetry_manager.configure(enabled=enabled, service_name=service_name)
-    return internal_telemetry_manager
+    telemetry_producer.configure(enabled=enabled, service_name=service_name)
+    return telemetry_producer
+
+
+def get_telemetry_status() -> Dict[str, Any]:
+    """Query local OpenTelemetry provider availability."""
+    return telemetry_consumer.get_telemetry_status()
+
+
+async def get_sdk_readiness() -> Dict[str, Any]:
+    return await telemetry_consumer.get_sdk_readiness()
+
+
+async def get_process_liveness() -> Dict[str, Any]:
+    """Query process liveness without probing exporters or dependencies."""
+    return await telemetry_consumer.get_process_liveness()

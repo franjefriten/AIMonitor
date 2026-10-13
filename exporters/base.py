@@ -10,7 +10,6 @@ import httpx
 from pathlib import Path
 from configs.config import get_settings
 
-
 settings = get_settings()
 
 
@@ -49,22 +48,30 @@ class BaseExporter(ABC):
     async def healthcheck(self) -> bool:
         """Mandatory method to check the health of the exporter. 
         Must be always implemented.
-        The healthcheck should emit a HealthCheckEvent with the status of the exporter.
+    The healthcheck should emit a boolean value indicating the health of the exporter.
         """
         pass
 
     @abstractmethod
-    async def status(self) -> dict:
-        """Mandatory method to get the status of the exporter. Must be always implemented.
-        It should always return a dictionary with the status of the exporter, 
-        including any relevant information such as connection status, last export time, etc.
+    async def describe(self) -> dict:
+        """Return diagnostic details for the exporter.
+
+        The returned data is informational only. Health state is owned by the
+        registry snapshot and must be determined by ``healthcheck()``.
         Example:
         {
             "status": "healthy",
-            "message": "Exporter is healthy and connected to the destination.",
+            "message": "Exporter is connected to the destination.",
             "timestamp": "2023-01-01T12:00:00Z"
         }
-        Only status is requiered, but you can add any other information you want to include in the status.
+        Exporters may add backend-specific diagnostic fields.
+        """
+        pass
+
+    @abstractmethod
+    async def recover(self) -> bool:
+        """Mandatory method to attempt recovery of the exporter. Must be always implemented.
+        Should return True if the recovery was successful, False otherwise.
         """
         pass
     

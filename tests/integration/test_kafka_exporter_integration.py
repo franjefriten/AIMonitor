@@ -38,7 +38,7 @@ def _get_free_port() -> int:
 @pytest.mark.asyncio
 async def test_kafka_exporter_sends_events_to_kakfa():
     registry = ExporterRegistry(batch_size=3)
-    kafka_exporter = KafkaExporter(topic="test-topic", kafka_configs=settings.get_kafka_config())
+    kafka_exporter = KafkaExporter(kafka_configs=settings.get_kafka_config())
     registry.register(kafka_exporter)
 
     events = [_build_event() for _ in range(12)]
@@ -57,7 +57,7 @@ async def test_kafka_exporter_sends_events_to_kakfa():
     configs_consumer.pop("client.id", None)
 
     consumer = aio.AIOConsumer(consumer_conf=configs_consumer)
-    await consumer.subscribe(["test-topic"])
+    await consumer.subscribe(["aimonitor-events"])
     await asyncio.sleep(1.0)
 
     msg = await consumer.poll(timeout=5.0)
