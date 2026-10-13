@@ -15,7 +15,7 @@ import time
 from datetime import UTC, datetime
 from utils.logger import logger
 from tenacity import retry
-from telemetry.api import internal_telemetry_manager
+from telemetry.api import telemetry_producer
 
 class ExporterRegistry:
     _instance = None
@@ -140,7 +140,7 @@ class ExporterRegistry:
         previous: SDKHealthStatus,
         current: SDKHealthStatus,
     ) -> None:
-        internal_telemetry_manager.track_event(
+        telemetry_producer.record_event(
             "sdk.health.transition",
             {
                 "previous_status": previous.value,
@@ -187,7 +187,7 @@ class ExporterRegistry:
         return True
 
     async def _publish_health_transition(self, snapshot: HealthCheckSnapshot) -> None:
-        await internal_telemetry_manager.track_healthcheck(snapshot)
+        await telemetry_producer.record_exporter_healthcheck(snapshot)
 
     async def _run_healthcheck(self, exporter: BaseExporter) -> HealthCheckSnapshot:
         started_at = datetime.now(UTC)
@@ -314,7 +314,7 @@ class ExporterRegistry:
             if post_health_recovery_snapshot is not None:
                 if not healthcheck_completed:
                     self._update_exporter_health(exporter, post_health_recovery_snapshot)
-                await internal_telemetry_manager.track_healthcheck(post_health_recovery_snapshot)
+                await telemetry_producer.record_exporter_healthcheck(post_health_recovery_snapshot)
 
         return status == HealthStatus.HEALTHY
 

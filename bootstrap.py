@@ -24,8 +24,8 @@ async def initialize_monitor(config_path: str | Path | None = None) -> AIMonitor
         elif path.suffix.lower() == ".json":
             await settings.load_from_json(path)
 
-    from telemetry.api import internal_telemetry_manager
-    internal_telemetry_manager.reset()
+    from telemetry.api import telemetry_producer
+    telemetry_producer.reset()
 
     exporters = []
 

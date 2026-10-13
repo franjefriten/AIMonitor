@@ -5,7 +5,7 @@ import pytest_asyncio
 
 from configs.config import get_settings
 from core.registry import registry
-from telemetry.api import internal_telemetry_manager
+from telemetry.api import telemetry_producer
 
 
 @pytest_asyncio.fixture(autouse=True)
@@ -13,7 +13,7 @@ async def reset_runtime_singletons():
     """Start each test with a clean registry, settings singleton, and telemetry manager."""
     await registry.reset()
     get_settings().reset()
-    internal_telemetry_manager.reset()
+    telemetry_producer.reset()
     yield
     await registry.reset()
 

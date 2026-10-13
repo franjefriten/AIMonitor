@@ -9,7 +9,11 @@ from core.event import (
     HealthStatus,
 )
 from core.registry import registry
-from telemetry.api import get_liveness, get_readiness, internal_telemetry_manager
+from telemetry.api import (
+    get_process_liveness,
+    get_sdk_readiness,
+    telemetry_producer,
+)
 
 import pytest
 from core.registry import ExporterRegistry
@@ -18,12 +22,13 @@ import asyncio
 
 @pytest.mark.asyncio
 async def test_healthcheck_api_returns_liveness_and_empty_readiness():
-    assert await get_liveness() == {"status": "alive"}
+    assert await get_process_liveness() == {"status": "alive", "component": "aimonitor-sdk"}
 
-    readiness = await get_readiness()
+    readiness = await get_sdk_readiness()
 
     assert readiness["status"] == "empty"
     assert readiness["summary"]["total_exporters"] == 0
+    assert await get_sdk_readiness() == readiness
 
 
 @pytest.mark.asyncio
@@ -83,8 +88,8 @@ async def test_base_healthcheck_wraps_custom_healthcheck_and_emits_telemetry(mon
             return True 
 
     monkeypatch.setattr(
-        internal_telemetry_manager,
-        "track_healthcheck",
+        telemetry_producer,
+        "record_exporter_healthcheck",
         lambda **payload: captured.append(payload),
     )
 
@@ -126,8 +131,8 @@ async def test_healthcheck_false_populates_snapshot(monkeypatch):
             return True
 
     monkeypatch.setattr(
-        internal_telemetry_manager,
-        "track_healthcheck",
+        telemetry_producer,
+        "record_exporter_healthcheck",
         lambda **payload: captured.append(payload),
     )
 
@@ -170,8 +175,8 @@ async def test_healthcheck_failure_populates_snapshot(monkeypatch):
             return True
 
     monkeypatch.setattr(
-        internal_telemetry_manager,
-        "track_healthcheck",
+        telemetry_producer,
+        "record_exporter_healthcheck",
         lambda **payload: captured.append(payload),
     )
 
@@ -220,8 +225,8 @@ async def test_consecutive_success_and_fail_healthchecks(monkeypatch):
             return True
 
     monkeypatch.setattr(
-        internal_telemetry_manager,
-        "track_healthcheck",
+        telemetry_producer,
+        "record_exporter_healthcheck",
         lambda **payload: captured.append(payload),
     )
 
@@ -265,7 +270,7 @@ async def test_health_status_transition(monkeypatch):
     async def capture_healthcheck(snapshot):
         captured.append(snapshot.model_dump())
 
-    monkeypatch.setattr(internal_telemetry_manager, "track_healthcheck", capture_healthcheck)
+    monkeypatch.setattr(telemetry_producer, "record_exporter_healthcheck", capture_healthcheck)
 
     registry = ExporterRegistry()
     exporter = CustomExporter()
@@ -361,7 +366,7 @@ async def test_health_recovery(monkeypatch):
     async def capture_healthcheck(snapshot):
         captured.append(snapshot.model_dump())
 
-    monkeypatch.setattr(internal_telemetry_manager, "track_healthcheck", capture_healthcheck)
+    monkeypatch.setattr(telemetry_producer, "record_exporter_healthcheck", capture_healthcheck)
 
     registry = ExporterRegistry()
     exporter = CustomExporter()
@@ -373,7 +378,7 @@ async def test_health_recovery(monkeypatch):
     )
     captured.clear()
 
-    # The registry emits exporter health snapshots through track_healthcheck
+    # The registry emits exporter health snapshots through record_exporter_healthcheck
     # and SDK transitions through _publish_sdk_health_transition separately.
     await asyncio.sleep(0.5)  # Allow the healthcheck worker to process the exporter
 
@@ -415,7 +420,7 @@ async def test_health_recovery_failed(monkeypatch):
     async def capture_healthcheck(snapshot):
         captured.append(snapshot.model_dump())
 
-    monkeypatch.setattr(internal_telemetry_manager, "track_healthcheck", capture_healthcheck)
+    monkeypatch.setattr(telemetry_producer, "record_exporter_healthcheck", capture_healthcheck)
 
     registry = ExporterRegistry()
     exporter = CustomExporter()
@@ -550,12 +555,79 @@ async def test_readiness_uses_cached_lifecycle_snapshot_without_describe(monkeyp
     exporter = LifecycleExporter()
     registry.register(exporter)
 
-    starting = await get_readiness()
+    starting = await get_sdk_readiness()
     assert starting["status"] == SDKHealthStatus.STARTING.value
     assert starting["exporters"]["LifecycleExporter"]["status"] == HealthStatus.STARTING.value
 
     await registry._run_healthcheck(exporter)
 
-    healthy = await get_readiness()
+    healthy = await get_sdk_readiness()
     assert healthy["status"] == SDKHealthStatus.HEALTHY.value
     assert healthy["exporters"]["LifecycleExporter"]["status"] == HealthStatus.HEALTHY.value
+
+
+@pytest.mark.asyncio
+async def test_exporter_lifecycle_register_healthcheck_and_shutdown(monkeypatch):
+    class LifecycleExporter(BaseExporter):
+        def __init__(self):
+            self.closed = False
+
+        async def export_batch(self, event_batch):
+            pass
+
+        async def healthcheck(self):
+            return True
+
+        async def describe(self):
+            return {"destination": "test"}
+
+        async def recover(self):
+            return True
+
+        async def close(self):
+            self.closed = True
+
+    registry = ExporterRegistry()
+    monkeypatch.setattr(registry, "_start_healthcheck_worker", lambda: None)
+    exporter = LifecycleExporter()
+    registry.register(exporter)
+
+    assert registry._health.exporters["LifecycleExporter"].status == HealthStatus.STARTING
+
+    await registry._run_healthcheck(exporter)
+    assert registry._health.exporters["LifecycleExporter"].status == HealthStatus.HEALTHY
+
+    await registry.shutdown()
+
+    assert exporter.closed is True
+    assert registry._health.exporters["LifecycleExporter"].status == HealthStatus.STOPPED
+    assert registry.exporters == ()
+
+
+@pytest.mark.asyncio
+async def test_registry_reset_discards_lifecycle_snapshot(monkeypatch):
+    class ResettableExporter(BaseExporter):
+        async def export_batch(self, event_batch):
+            pass
+
+        async def healthcheck(self):
+            return True
+
+        async def describe(self):
+            return {"destination": "test"}
+
+        async def recover(self):
+            return True
+
+    registry = ExporterRegistry()
+    monkeypatch.setattr(registry, "_start_healthcheck_worker", lambda: None)
+    exporter = ResettableExporter()
+    registry.register(exporter)
+    await registry._run_healthcheck(exporter)
+
+    await registry.reset()
+
+    snapshot = await registry.health_snapshot()
+    assert snapshot.status == SDKHealthStatus.EMPTY
+    assert snapshot.exporters == {}
+    assert snapshot.summary["total_exporters"] == 0
