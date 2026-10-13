@@ -418,6 +418,30 @@ InternalTelemetryManager
     └── observa y publica métricas/traces, pero no posee el estado
 ```
 
+## 16. Merge Readiness and Remaining Work
+
+The healthcheck implementation is functionally advanced enough for a focused review, but the branch should not be merged until the complete test suite can be collected and executed successfully.
+
+### Current merge blocker
+
+The full pytest run currently fails during test collection because two modules share the same basename:
+
+- `tests/integration/test_kafka_exporter.py`
+- `tests/unit/test_kafka_exporter.py`
+
+The smallest fix is to rename the integration module, for example to `test_kafka_exporter_integration.py`. After that change, the complete suite must be run again. The integration test also requires a Kafka broker, so the test environment and its dependency must be available when integration tests are enabled.
+
+### Healthcheck priorities before calling the design stable
+
+1. Make the registry snapshot the single source of truth for readiness. The registry maintains cached health snapshots, while `telemetry.api.get_readiness()` still queries each exporter's `status()` directly. These two paths can report different states and should be unified.
+2. Define the distinction between `DOWN` and `FAILURE` explicitly. The decision must be consistent across `core/registry.py`, tests, telemetry, and this documentation.
+3. Add contract tests for the complete lifecycle: `STARTING -> HEALTHY`, `HEALTHY -> DOWN -> RECOVERING -> HEALTHY`, recovery exhaustion, mixed healthy and failed exporters, shutdown, and multiple exporters of the same class.
+4. Review the operational documentation and examples before release. The healthcheck documentation should contain a valid custom exporter example and describe the actual timeout, recovery, readiness, and snapshot behavior.
+
+### Merge recommendation
+
+Do not merge while test collection is broken. Once the duplicate test module is renamed and the full suite passes, the implementation can be merged as an incremental healthcheck foundation, with readiness unification and the additional lifecycle tests tracked as the next hardening step if they are not included in the same change.
+
 La idea central es mantener una única fuente de verdad para el ciclo de vida: el registry. La API de health debe ser una vista segura y serializable de ese estado, y la recuperación debe ser una política explícita, limitada y observable.
 
 ## 16. Orden de trabajo para la siguiente sesión
