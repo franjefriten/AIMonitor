@@ -73,15 +73,16 @@ class HealthStatus(str, Enum):
     - healthy: the last health check was successful.
     - starting: the exporter was registered but has not yet completed its first health check.
     - recovering: last health check failed but the exporter is attempting to recover.
-    - down: the exporter is not healthy and not attempting to recover.
+    - down: the health check completed and returned False; the exporter is not healthy.
+    - failure: during a health check, the check could not complete because it raised an exception or timed out. The same status may represent an exporter operation failure outside a health check.
     - stopped: the exporter has been stopped manually and is no longer operational.
     - unused: the exporter is not being used.
     """
     HEALTHY = "healthy" # the last health check was successful.
     STARTING = "starting" # the exporter was registered but has not yet completed its first health check.
     RECOVERING = "recovering" # last health check failed but the exporter is attempting to recover.
-    DOWN = "down" # the exporter is not healthy and not attempting to recover.
-    FAILURE = "failure" # the exporter failed while exporting a batch.
+    DOWN = "down" # healthcheck completed and returned False.
+    FAILURE = "failure" # healthcheck or exporter operation could not complete.
     STOPPED = "stopped" # the exporter has been stopped and is not operational.
     UNUSED = "unused" # the exporter is not being used.
     # NOTE: given that the user can create any custom health statuses, this list may not be exhaustive. To do so, we'd have to account for every class that inherits from BaseExporter

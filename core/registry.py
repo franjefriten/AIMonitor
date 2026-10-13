@@ -88,7 +88,9 @@ class ExporterRegistry:
             "healthy_count": sum(item.status == HealthStatus.HEALTHY for item in snapshots),
             "recovering_count": sum(item.status == HealthStatus.RECOVERING for item in snapshots),
             "failure_count": sum(item.status == HealthStatus.FAILURE for item in snapshots),
-            "down_count": sum(item.status in {HealthStatus.DOWN, HealthStatus.FAILURE} for item in snapshots), # We must include failures as down
+            # Both states are unhealthy; the status preserves whether the check
+            # returned False or could not complete.
+            "down_count": sum(item.status in {HealthStatus.DOWN, HealthStatus.FAILURE} for item in snapshots),
             "stopped_count": sum(item.status == HealthStatus.STOPPED for item in snapshots),
         }
         self._health.summary = counts
@@ -199,6 +201,8 @@ class ExporterRegistry:
                 last_success_at=started_at
                 last_failure_at=None
             else:
+                # DOWN means the healthcheck completed normally and explicitly
+                # reported that the exporter is not healthy.
                 status = HealthStatus.DOWN
                 last_failure_at=started_at
                 last_success_at=None
@@ -212,6 +216,8 @@ class ExporterRegistry:
                 last_check_finished_at=datetime.now(UTC)
             )
         except Exception:
+            # FAILURE means the healthcheck itself could not complete. This is
+            # also unhealthy, but differs from a valid False result.
             status = HealthStatus.FAILURE
             health_snapshot = HealthCheckSnapshot(
                 exporter_name=exporter.__class__.__name__,
@@ -415,6 +421,8 @@ class ExporterRegistry:
         if snapshot is None:
             return
 
+        # A failed export operation is also unhealthy, but this path is
+        # separate from the DOWN/FAILURE healthcheck result contract.
         snapshot.status = HealthStatus.HEALTHY if success else HealthStatus.FAILURE
         snapshot.message = message or (
             "Exporter batch delivered successfully."
