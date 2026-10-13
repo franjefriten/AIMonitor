@@ -15,10 +15,11 @@ El diseño está pensado para que la implementación pueda hacerse por etapas y 
 
 La API pública ya separa dos conceptos importantes:
 
-- `get_liveness()`: debe ser barato y no contactar con dependencias externas.
-- `get_readiness()`: informa sobre los exporters registrados y sus dependencias.
+- `get_process_liveness()`: debe ser barato y no contactar con dependencias externas.
+- `get_sdk_readiness()`: informa sobre los exporters registrados y sus dependencias.
+- `get_telemetry_status()`: consulta la disponibilidad local del provider de OpenTelemetry.
 
-La implementación actual de `get_readiness()` lee el snapshot cacheado del `ExporterRegistry` en el momento de la consulta. Esto evita probes adicionales y mantiene una única fuente de verdad para el estado.
+La implementación actual de `get_sdk_readiness()` lee el snapshot cacheado del `ExporterRegistry` en el momento de la consulta. Esto evita probes adicionales y mantiene una única fuente de verdad para el estado.
 
 La primera versión obtenía el estado llamando a `status()` sobre los exporters en cada consulta, pero ese enfoque tenía varias limitaciones:
 
@@ -142,6 +143,17 @@ Un snapshot podría tener esta forma:
 
 El método `describe()` de cada exporter puede devolver detalles propios, pero no es la fuente del historial ni del estado del registry. El worker debe registrar el resultado después de cada healthcheck.
 
+### Healthcheck result contract
+
+The registry distinguishes an unhealthy exporter from a healthcheck execution failure:
+
+- `HEALTHY`: the healthcheck completed and returned `True`.
+- `DOWN`: the healthcheck completed and returned `False`; the exporter is known to be unhealthy.
+- `FAILURE`: the healthcheck raised an exception or exceeded its timeout; the exporter is also considered unhealthy, but the check did not produce a valid boolean result.
+- `RECOVERING`: recovery is being attempted after an unhealthy result.
+
+Both `DOWN` and `FAILURE` contribute to the SDK's unhealthy counts. Their separate values preserve the cause of the unhealthy state for operators and telemetry consumers.
+
 ## 6. Separar `describe()` de `healthcheck()`
 
 Conviene mantener responsabilidades diferentes:
@@ -150,7 +162,7 @@ Conviene mantener responsabilidades diferentes:
 - `describe()`: devuelve información diagnóstica del exporter.
 - `health_snapshot()`: devuelve el estado histórico mantenido por el registry.
 
-En particular, `get_readiness()` debe leer el snapshot cacheado en lugar de lanzar probes nuevos o invocar `describe()`. Esto hace que la ruta sea predecible y barata.
+En particular, `get_sdk_readiness()` debe leer el snapshot cacheado en lugar de lanzar probes nuevos o invocar `describe()`. Esto hace que la ruta sea predecible y barata.
 
 Una consecuencia operativa es que readiness puede mostrar un resultado ligeramente antiguo. Esa antigüedad es controlable exponiendo `last_check_finished_at` y, si se desea, un `stale: true` cuando el resultado supere una edad máxima.
 
@@ -326,7 +338,7 @@ La implementación debería crecer acompañada de tests pequeños y específicos
 ### Estado inicial
 
 - Un exporter registrado empieza en `starting`.
-- `get_liveness()` no invoca healthchecks.
+- `get_process_liveness()` no invoca healthchecks.
 - Un registry sin exporters devuelve `empty`.
 
 ### Healthcheck correcto
@@ -372,7 +384,7 @@ Para mantener el cambio manejable, se propone este orden:
 1. Añadir el modelo `ExporterHealth`.
 2. Añadir `_health` al `ExporterRegistry`.
 3. Actualizar el worker para guardar timestamps, estados y contadores.
-4. Añadir `health_snapshot()` y hacer que readiness lo utilice.
+4. Añadir `health_snapshot()` y hacer que SDK readiness lo utilice.
 5. Separar `healthcheck_timeout` de `healthcheck_interval`.
 6. Añadir `registry.reset()` y conectarlo al fixture.
 7. Escribir tests de estado, timeout y reset.
@@ -413,8 +425,9 @@ ExporterRegistry
     └── health_snapshot()
 
 telemetry.api
-    ├── get_liveness()  -> comprobación local y barata
-    └── get_readiness() -> snapshot cacheado del registry
+    ├── get_process_liveness() -> comprobación local y barata
+    ├── get_sdk_readiness()    -> snapshot cacheado del registry
+    └── get_telemetry_status() -> disponibilidad local de OTel
 
 InternalTelemetryManager
     └── observa y publica métricas/traces, pero no posee el estado
@@ -437,7 +450,7 @@ The current full-suite run collects 51 tests and reports 44 passed, 3 failed, an
 
 ### Healthcheck priorities before calling the design stable
 
-1. Keep the registry snapshot as the single source of truth for readiness. `telemetry.api.get_readiness()` now reads the cached snapshot instead of querying each exporter directly. Exporter `describe()` results remain diagnostic and must not determine health.
+1. Keep the registry snapshot as the single source of truth for readiness. `telemetry.api.get_sdk_readiness()` now reads the cached snapshot instead of querying each exporter directly. Exporter `describe()` results remain diagnostic and must not determine health.
 2. Define the distinction between `DOWN` and `FAILURE` explicitly. The decision must be consistent across `core/registry.py`, tests, telemetry, and this documentation.
 3. Add contract tests for the complete lifecycle: `STARTING -> HEALTHY`, `HEALTHY -> DOWN -> RECOVERING -> HEALTHY`, recovery exhaustion, mixed healthy and failed exporters, shutdown, and multiple exporters of the same class.
 4. Review the operational documentation and examples before release. The healthcheck documentation should contain a valid custom exporter example and describe the actual timeout, recovery, readiness, and snapshot behavior.
@@ -448,17 +461,23 @@ Do not merge until the remaining integration failures are either fixed or explic
 
 La idea central es mantener una única fuente de verdad para el ciclo de vida: el registry. La API de health debe ser una vista segura y serializable de ese estado, y la recuperación debe ser una política explícita, limitada y observable.
 
-## 16. Orden de trabajo para la siguiente sesión
+## 16. Telemetry Producer and Consumer Contract
 
-Antes de implementar recovery, conviene consolidar el contrato de telemetría. La siguiente sesión debería seguir este orden:
+The telemetry API is split into two explicit responsibilities:
 
-1. Cambiar `track_healthcheck()` para que reciba un `HealthCheckSnapshot` completo, en lugar de `exporter_name`, `healthy` y `message` por separado.
-2. Retirar la emisión de telemetría del wrapper de `BaseExporter._healthcheck()` o dejarla limitada al resultado provisional.
-3. Hacer que el registry emita el snapshot después de consolidar timestamps y contadores.
-4. Comparar el estado anterior y el nuevo para emitir solo transiciones relevantes, como `healthy -> down` o `recovering -> healthy`.
-5. Mantener el snapshot como fuente de verdad y OpenTelemetry como canal opcional de observabilidad.
-6. Añadir tests para snapshots, transiciones y ausencia de eventos duplicados.
-7. Revisar el timeout del healthcheck y separarlo del intervalo antes de avanzar con recovery.
-8. Implementar después `recover()` con límite de intentos, backoff y protección contra recuperaciones simultáneas.
+- `TelemetryProducer` records internal SDK events, exporter healthcheck results, and metrics on a best-effort basis.
+- `TelemetryConsumer` provides local telemetry availability and SDK health queries.
 
-La primera meta no es todavía recuperar exporters, sino conseguir que un healthcheck produzca una única representación coherente del estado y que sus cambios sean observables sin ruido.
+The producer never owns health state. The registry owns exporter snapshots, transitions, counters, and recovery. The consumer reads that state through `get_sdk_readiness()` and reports local OpenTelemetry availability through `get_telemetry_status()`.
+
+This API does not query an external OpenTelemetry backend. OpenTelemetry SDK providers are generally write-oriented; querying exported traces or metrics requires the backend-specific client or API.
+
+The canonical public functions are:
+
+```python
+await get_process_liveness()
+await get_sdk_readiness()
+get_telemetry_status()
+```
+
+The old `get_liveness()`, `get_readiness()`, `track_*` helpers, and the status-building helpers based on exporter `describe()` are intentionally removed while the project is still in development. This prevents two competing health models from surviving in the public API.

@@ -5,19 +5,20 @@ AIMonitor provides a small asynchronous Python API for health information. It do
 ## Available functions
 
 ```python
-from telemetry.api import get_liveness, get_readiness
+from telemetry.api import get_process_liveness, get_sdk_readiness, get_telemetry_status
 
-liveness = await get_liveness()
-readiness = await get_readiness()
+liveness = await get_process_liveness()
+readiness = await get_sdk_readiness()
+telemetry = get_telemetry_status()
 ```
 
-`get_liveness()` only confirms that the process and SDK are running. It does not contact exporters:
+`get_process_liveness()` only confirms that the process and SDK are running. It does not contact exporters:
 
 ```json
 {"status": "alive"}
 ```
 
-`get_readiness()` returns the latest cached snapshot maintained by the `ExporterRegistry`. It does not call exporter healthchecks or diagnostic methods during the request:
+`get_sdk_readiness()` returns the latest cached snapshot maintained by the `ExporterRegistry`. It does not call exporter healthchecks or diagnostic methods during the request:
 
 ```json
 {
@@ -42,6 +43,8 @@ Possible aggregate statuses are `healthy`, `degraded`, `down`, `starting`, and `
 
 The registry snapshot is the source of truth for health. Exporters may implement `describe()` to expose backend-specific diagnostic information, but that method does not determine readiness.
 
+`get_telemetry_status()` is a local query of OpenTelemetry provider availability. It reports whether the SDK has an active tracer and meter; it does not query an external telemetry backend. Backend queries require the backend's own client or API.
+
 ## FastAPI integration
 
 The host application owns the HTTP server and decides which routes to expose:
@@ -51,7 +54,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from bootstrap import initialize_monitor
-from telemetry.api import get_liveness, get_readiness
+from telemetry.api import get_process_liveness, get_sdk_readiness
 
 
 @asynccontextmanager
@@ -67,20 +70,20 @@ app = FastAPI(lifespan=lifespan)
 
 @app.get("/health/live")
 async def health_live():
-    return await get_liveness()
+  return await get_process_liveness()
 
 
 @app.get("/health/ready")
 async def health_ready():
-    return await get_readiness()
+  return await get_sdk_readiness()
 ```
 
 The same functions can be connected to Starlette, Flask through an adapter, or any custom HTTP layer.
 
 ## Operational guidance
 
-- Keep liveness cheap and independent from external services.
-- Use readiness for exporter connectivity and dependency checks.
+- Keep process liveness cheap and independent from external services.
+- Use SDK readiness for exporter connectivity and dependency checks.
 - Protect diagnostic routes at the application or network layer.
 - Do not expose credentials or unsanitized configuration in health responses.
 - Do not add a public reload endpoint unless it is explicitly authenticated and required by the host application.
@@ -110,4 +113,13 @@ class CustomExporter(BaseExporter):
     return True
 ```
 
-The registry maps healthcheck results to snapshots: `True` becomes `healthy`, `False` becomes `down`, and an exception or timeout becomes `failure`. Recovery is followed by another healthcheck before the exporter can become `healthy` again.
+The registry maps healthcheck results to snapshots:
+
+| Snapshot status | Meaning |
+| --- | --- |
+| `healthy` | The healthcheck completed and returned `True`. |
+| `down` | The healthcheck completed and returned `False`. The exporter is known to be unhealthy. |
+| `failure` | The healthcheck could not complete because it raised an exception or timed out. The exporter is also considered unhealthy, but its health could not be evaluated normally. |
+| `recovering` | Recovery is in progress after an unhealthy result. |
+
+Recovery is followed by another healthcheck before the exporter can become `healthy` again.
