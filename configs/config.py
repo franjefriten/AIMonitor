@@ -107,6 +107,13 @@ _OTEL_MCP_SPAN_PREFIX_ALIASES = frozenset({
     "span_prefix",
     "spanPrefix"
 })
+_KAFKA_PRODUCER_ACKS_ALIASES = frozenset({"acks", "producer_acks", "producerAcks", "kafka_producer_acks"})
+_KAFKA_PRODUCER_LINGER_MS_ALIASES = frozenset({"linger_ms", "producer_linger_ms", "producerLingerMs", "kafka_producer_linger_ms"})
+_KAFKA_PRODUCER_COMPRESSION_ALIASES = frozenset({"compression", "compression_type", "compressionType", "kafka_compression_type"})
+_KAFKA_MAX_WORKERS_ALIASES = frozenset({"max_workers", "maxWorkers", "kafka_max_workers"})
+_KAFKA_BATCH_SIZE_ALIASES = frozenset({"batch_size", "batchSize", "kafka_batch_size"})
+_KAFKA_MAX_IN_FLIGHT_REQUESTS_ALIASES = frozenset({"max_in_flight_requests_per_connection", "maxInFlightRequestsPerConnection", "kafka_max_in_flight_requests_per_connection"})
+_KAFKA_BUFFER_TIMEOUT_ALIASES = frozenset({"buffer_timeout", "bufferTimeout", "kafka_buffer_timeout"})
 
 LOGGING_CONFIG = {
     "version": 1,
@@ -325,6 +332,46 @@ class AIMonitorSettings(BaseSettings):
     kafka_socket_timeout_ms: int = Field(default=30000, description="Socket timeout in milliseconds for Kafka producer")
     kafka_reconnect_backoff_ms: int = Field(default=1000, description="Reconnect backoff in milliseconds for Kafka producer")
     kafka_reconnect_backoff_max_ms: int = Field(default=30000, description="Max reconnect backoff in milliseconds for Kafka producer")
+    kafka_max_in_flight_requests_per_connection: Optional[int] = Field(
+        default=5,
+        description="Maximum number of in-flight requests per Kafka connection",
+        ge=1,
+        validation_alias=AliasChoices(*_KAFKA_MAX_IN_FLIGHT_REQUESTS_ALIASES),
+    )
+    kafka_buffer_timeout: Optional[float] = Field(
+        default=1.0,
+        description="Buffer timeout used by the Kafka producer in seconds",
+        ge=0,
+        validation_alias=AliasChoices(*_KAFKA_BUFFER_TIMEOUT_ALIASES),
+    )
+    kafka_producer_acks: Optional[str] = Field(
+        default="all",
+        description="Kafka producer acknowledgement level",
+        validation_alias=AliasChoices(*_KAFKA_PRODUCER_ACKS_ALIASES),
+    )
+    kafka_producer_linger_ms: Optional[int] = Field(
+        default=5,
+        description="Kafka producer linger time in milliseconds",
+        ge=0,
+        validation_alias=AliasChoices(*_KAFKA_PRODUCER_LINGER_MS_ALIASES),
+    )
+    kafka_compression_type: Optional[str] = Field(
+        default="none",
+        description="Kafka producer compression codec",
+        validation_alias=AliasChoices(*_KAFKA_PRODUCER_COMPRESSION_ALIASES),
+    )
+    kafka_max_workers: Optional[int] = Field(
+        default=None,
+        description="Kafka producer worker count",
+        ge=1,
+        validation_alias=AliasChoices(*_KAFKA_MAX_WORKERS_ALIASES),
+    )
+    kafka_batch_size: Optional[int] = Field(
+        default=None,
+        description="Kafka producer batch size",
+        ge=1,
+        validation_alias=AliasChoices(*_KAFKA_BATCH_SIZE_ALIASES),
+    )
     # sqlite
     sqlite_enabled: bool = Field(
         default=False,
@@ -590,7 +637,7 @@ class AIMonitorSettings(BaseSettings):
                         flattened_data["kafka_sasl_mechanism"] = kafka_sasl_mechanism
                     kafka_sasl_username = kafka_sasl.get("username")
                     if kafka_sasl_username is not None:
-                        flattened_data["kafka_sasl_username"] = kafka_sasl_username
+                        flattened_data["kafka_sasl_username"] = SecretStr(kafka_sasl_username)
                     kafka_sasl_password = kafka_sasl.get("password")
                     if kafka_sasl_password is not None:
                         flattened_data["kafka_sasl_password"] = SecretStr(kafka_sasl_password)
@@ -607,7 +654,7 @@ class AIMonitorSettings(BaseSettings):
                         flattened_data["kafka_compression_type"] = kafka_compression_type
                     kafka_linger_ms = kakfa_producer.get("linger_ms")
                     if kafka_linger_ms is not None and isinstance(kafka_linger_ms, int):
-                        flattened_data["kafka_linger_ms"] = kafka_linger_ms
+                        flattened_data["kafka_producer_linger_ms"] = kafka_linger_ms
                     kafka_max_workers = kakfa_producer.get("max_workers")
                     if kafka_max_workers is not None and isinstance(kafka_max_workers, int):
                         flattened_data["kafka_max_workers"] = kafka_max_workers
@@ -797,7 +844,7 @@ class AIMonitorSettings(BaseSettings):
                         flattened_data["kafka_sasl_mechanism"] = kafka_sasl_mechanism
                     kafka_sasl_username = kafka_sasl.get("username")
                     if kafka_sasl_username is not None:
-                        flattened_data["kafka_sasl_username"] = kafka_sasl_username
+                        flattened_data["kafka_sasl_username"] = SecretStr(kafka_sasl_username)
                     kafka_sasl_password = kafka_sasl.get("password")
                     if kafka_sasl_password is not None:
                         flattened_data["kafka_sasl_password"] = SecretStr(kafka_sasl_password)
@@ -814,7 +861,7 @@ class AIMonitorSettings(BaseSettings):
                         flattened_data["kafka_compression_type"] = kafka_compression_type
                     kafka_linger_ms = kakfa_producer.get("linger_ms")
                     if kafka_linger_ms is not None and isinstance(kafka_linger_ms, int):
-                        flattened_data["kafka_linger_ms"] = kafka_linger_ms
+                        flattened_data["kafka_producer_linger_ms"] = kafka_linger_ms
                     kafka_max_workers = kakfa_producer.get("max_workers")
                     if kafka_max_workers is not None and isinstance(kafka_max_workers, int):
                         flattened_data["kafka_max_workers"] = kafka_max_workers
@@ -871,6 +918,14 @@ class AIMonitorSettings(BaseSettings):
 
         config_logger.info("JSON config file was loaded into AIMonitor settings")
     
+    @staticmethod
+    def _unwrap_secret(value: Optional[SecretStr | str]) -> Optional[str]:
+        if value is None:
+            return None
+        if isinstance(value, SecretStr):
+            return value.get_secret_value()
+        return value
+
     def get_kafka_config(self) -> dict:
         """Return the exact producer configuration expected by confluent-kafka."""
         kafka = self.exporters.kafka
@@ -896,9 +951,9 @@ class AIMonitorSettings(BaseSettings):
         if kafka.sasl_mechanism:
             conf["sasl.mechanism"] = kafka.sasl_mechanism
         if kafka.sasl_username:
-            conf["sasl.username"] = kafka.sasl_username
+            conf["sasl.username"] = self._unwrap_secret(kafka.sasl_username)
         if kafka.sasl_password:
-            conf["sasl.password"] = kafka.sasl_password
+            conf["sasl.password"] = self._unwrap_secret(kafka.sasl_password)
 
         return conf
 
@@ -947,8 +1002,8 @@ class AIMonitorSettings(BaseSettings):
                 bootstrap_servers=self.kafka_bootstrap_servers,
                 security_protocol=self.kafka_security_protocol,
                 sasl_mechanism=self.kafka_sasl_mechanism,
-                sasl_username=self.kafka_sasl_username.get_secret_value() if self.kafka_sasl_username else None,
-                sasl_password=self.kafka_sasl_password.get_secret_value() if self.kafka_sasl_password else None,
+                sasl_username=self._unwrap_secret(self.kafka_sasl_username),
+                sasl_password=self._unwrap_secret(self.kafka_sasl_password),
                 group_id=self.kafka_group_id,
                 auto_offset_reset=self.kafka_auto_offset_reset,
                 retry_policy=self.kafka_retry_policy,
