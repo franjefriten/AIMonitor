@@ -41,6 +41,47 @@ class WebhookExporter(HTTPBaseExporter):
             timeout=10.0
         )
         response.raise_for_status()
-            
     
-        
+    async def healthcheck(self) -> bool:
+        success = True
+        error_message = ""
+        try:
+            response = await self.client.get(self.url, timeout=10.0)
+            response.raise_for_status()
+        except Exception as e:
+            logger.error(f"Health check failed for WebhookExporter: {e}")
+            success = False
+            error_message = str(e)
+
+        if success:
+            logger.info("Health check passed for WebhookExporter.")
+        else:
+            logger.error("Health check failed for WebhookExporter.")
+        return success
+
+    async def describe(self) -> dict:
+        """
+        Return diagnostic details for the WebhookExporter, including the URL and connection status.
+        """
+        if not self.client:
+            return {"status": "unhealthy", "message": "WebhookExporter is not connected."}
+
+        return {
+            "status": "healthy",
+            "message": "WebhookExporter is operational.",
+            "url": self.url,
+            "headers": self.headers,
+            "auth": str(self.auth) if self.auth else None,
+        }
+    
+    async def recover(self) -> bool:
+        """
+        Attempt to recover the WebhookExporter. Recovery is considered successful if the HTTP client can be reinitialized.
+        """
+        try:
+            if not self.client:
+                self.client = httpx.AsyncClient()
+            return True
+        except Exception as e:
+            logger.error(f"Recovery failed for WebhookExporter: {e}")
+            return False

@@ -15,6 +15,12 @@ async def test_tool_monitoring_workflow():
             captured_events.append(event)
         async def export_batch(self, event_batch: list):
             captured_events.extend(event_batch)
+        async def healthcheck(self):
+            pass
+        async def describe(self):
+            pass
+        async def recover(self):
+            return True
 
     spy = SpyExporter()
     

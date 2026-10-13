@@ -51,7 +51,7 @@ class KafkaExporter(BaseExporter):
                 max_workers=max_workers,
                 batch_size=batch_size,
                 buffer_timeout=buffer_timeout,
-                acks="all"
+                acks=self.kafka_configs.get("acks", "all")
             )
             logger.info("Kafka producer initialized correctly")
         except Exception:
@@ -113,3 +113,63 @@ class KafkaExporter(BaseExporter):
     async def close(self) -> None:
         logger.info("Closing kafka producer and flushing queue...")
         await self.producer.flush()
+
+    
+    async def healthcheck(self) -> bool:
+        """
+        Health check for the KafkaExporter. This exporter is considered healthy if it can connect to the Kafka broker.
+        """
+        success = True
+        error_message = ""
+        try:
+            # Attempt to produce a test message to the Kafka broker
+            test_message = json.dumps({"healthcheck": "test"}).encode("utf-8")
+            await self.producer.produce(
+                topic="aimonitor-healthcheck",
+                key=b"healthcheck",
+                value=test_message,
+                callback=self._report_delivery,
+            )
+            await self.producer.flush()
+        except Exception as e:
+            logger.error(f"Health check failed for KafkaExporter: {e}")
+            success = False
+            error_message = str(e)
+
+        if success:
+            logger.info("Health check passed for KafkaExporter.")
+        else:
+            logger.error("Health check failed for KafkaExporter.")
+        return success
+    
+    async def describe(self) -> dict:
+        """
+        Return diagnostic details for the KafkaExporter, including broker information.
+        """
+        try:
+            metadata = await self.producer.get_metadata(timeout=5.0)
+            return {
+                "status": "healthy",
+                "message": "KafkaExporter is operational.",
+                "brokers": [broker.host for broker in metadata.brokers.values()],
+                "topics": list(metadata.topics.keys()),
+            }
+        except Exception as e:
+            logger.error(f"Failed to retrieve Kafka metadata: {e}")
+            return {
+                "status": "unhealthy",
+                "message": f"Failed to retrieve Kafka metadata: {e}",
+            }
+
+    async def recover(self) -> bool:
+        """
+        Attempt to recover the KafkaExporter. Recovery is considered successful if the Kafka producer can be reinitialized.
+        """
+        try:
+            if not self.producer:
+                from confluent_kafka import Producer
+                self.producer = Producer(self.config)
+            return True
+        except Exception as e:
+            logger.error(f"Recovery failed for KafkaExporter: {e}")
+            return False

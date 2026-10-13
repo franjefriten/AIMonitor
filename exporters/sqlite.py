@@ -1,13 +1,10 @@
 from exporters.base import BaseDatabaseExporter
-from configs.config import get_settings
 from utils.logger import logger
 from core.event import BaseSignal, SignalType, MCPEvent, LogEvent, MetricEvent, SpanEvent
 from typing import List
 import json
 from datetime import datetime
 from enum import Enum
-
-settings = get_settings()
 
 SIGNAL_TABLE_SUFFIX = {
     SignalType.EVENT: "event",
@@ -27,7 +24,7 @@ class SQLiteExporter(BaseDatabaseExporter):
 
     SUPPORTED_SIGNALS = {SignalType.EVENT, SignalType.LOG, SignalType.METRIC, SignalType.SPAN}
 
-    def __init__(self, dsn: str = settings.sqlite_uri, table_name: str = "aimonitor"):
+    def __init__(self, dsn: str, table_name: str = "aimonitor"):
         super().__init__(dsn=dsn)
         try:
             import aiosqlite
@@ -105,3 +102,48 @@ class SQLiteExporter(BaseDatabaseExporter):
             )
 
         await self.client.commit()
+
+    
+    async def healthcheck(self) -> bool:
+        """
+        Health check for the SQLiteExporter. This exporter is considered healthy if it can connect to the SQLite database.
+        """
+        success = True
+        try:
+            async with self.client.execute("SELECT 1;") as cursor:
+                await cursor.fetchone()
+        except Exception as e:
+            logger.error(f"Health check failed for SQLiteExporter: {e}")
+            success = False
+        return success
+    
+    async def describe(self) -> dict:
+        """
+        Return diagnostic details for the SQLiteExporter, including its database path.
+        """
+        if not self.client:
+            return {"status": "unhealthy", "message": "SQLiteExporter is not connected."}
+
+        return {
+            "status": "healthy",
+            "message": "SQLiteExporter is operational.",
+            "database": self.dsn,
+            "table_name": self.table_name,
+        }
+
+    async def recover(self) -> bool:
+        """
+        Attempt to recover the SQLiteExporter. Recovery is considered successful if the SQLite client can be reinitialized.
+        """
+        try:
+            if not self.client:
+                try:
+                    import aiosqlite
+                    self.client = await aiosqlite.connect(self.dsn)
+                except ImportError as ie:
+                    logger.error(f"Failed to import aiosqlite for SQLiteExporter recovery: {ie}")
+                    return False
+            return True
+        except Exception as e:
+            logger.error(f"Recovery failed for SQLiteExporter: {e}")
+            return False

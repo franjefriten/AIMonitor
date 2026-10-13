@@ -7,14 +7,10 @@ from datetime import datetime
 from datetime import UTC
 from exporters.base import with_retry
 from typing import List, Literal, Optional
-import sys, os
+from aiofiles import os
 from typing import Protocol
 import aiofiles
 from pathlib import Path
-from configs.config import get_settings
-
-settings = get_settings()
-
 # Tu Protocolo está perfecto
 class AsyncWritable(Protocol):
     async def write(self, data: str) -> int: ...
@@ -29,9 +25,9 @@ class FileExporter(BaseExporter):
     SUPPORTED_SIGNALS = {SignalType.EVENT, SignalType.LOG, SignalType.METRIC, SignalType.SPAN}
 
     def __init__(
-            self, base_uri: str | Path = settings.file_exporter_logs, 
+            self, base_uri: str | Path = Path("./logs"),
             mode: Literal['a', 'w', 'x'] = 'a',
-            max_bytes: float = (1024 * settings.max_mb_per_file * 1024)
+            max_bytes: float = (1024 * 10.0 * 1024)
         ):
         super().__init__()
         self.base_uri = Path(base_uri)
@@ -81,6 +77,7 @@ class FileExporter(BaseExporter):
     async def export(self, event: BaseSignal) -> None:
         await self.export_batch([event])
     
+    @with_retry
     async def export_batch(self, event_batch: List[BaseSignal]) -> None:
         if not self.client:
             logger.error(f"client for {self.__class__.__name__} not initialized")
@@ -101,3 +98,53 @@ class FileExporter(BaseExporter):
 
         await self.client.writelines(lines)
         await self.client.flush()
+
+    async def healthcheck(self) -> bool:
+        """
+        Health check for the FileExporter. This exporter is considered healthy if it can write to the file.
+        """
+        success = True
+        try:
+            test_file_uri = self.base_uri / "healthcheck_test_file.txt"
+            async with aiofiles.open(test_file_uri, mode='w') as test_file:
+                await test_file.write("Health check test.")
+            await os.remove(test_file_uri)
+        except Exception as e:
+            logger.error(f"Health check failed for FileExporter: {e}")
+            success = False
+
+        if success:
+            logger.info("Health check passed for FileExporter.")
+        else:
+            logger.error("Health check failed for FileExporter.")
+
+        return success
+    
+    async def describe(self) -> dict:
+        """
+        Return diagnostic details for the FileExporter, including the current file and its size.
+        """
+        if not self.client:
+            return {"status": "unhealthy", "message": "FileExporter is not connected."}
+
+        file_size = self.file_uri.stat().st_size if self.file_uri.exists() else 0
+        return {
+            "status": "healthy",
+            "message": "FileExporter is operational.",
+            "current_file": str(self.file_uri),
+            "file_size_bytes": file_size,
+            "rotation": self.rotation,
+            "date": str(self.date),
+        }
+    
+    async def recover(self) -> bool:
+        """
+        Attempt to recover the FileExporter. Recovery is considered successful if the file can be opened for writing.
+        """
+        try:
+            if not self.client:
+                self.client = await aiofiles.open(self.file_uri, mode='a')
+            return True
+        except Exception as e:
+            logger.error(f"Recovery failed for FileExporter: {e}")
+            return False

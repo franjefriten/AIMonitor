@@ -19,9 +19,9 @@ class PrometheusExporter(BaseExporter):
 
     SUPPORTED_SIGNALS = {SignalType.METRIC}
 
-    def __init__(self, address: Optional[str] = None, registry: Optional[CollectorRegistry] = None):
+    def __init__(self, address: str = "http://0.0.0.0:9000", registry: Optional[CollectorRegistry] = None):
         super().__init__()
-        self.address = address or settings.prometheus_url
+        self.address = address
         self.registry = registry if registry is not None else CollectorRegistry(auto_describe=True)
         self._server_started = False
 
@@ -67,3 +67,41 @@ class PrometheusExporter(BaseExporter):
     async def close(self) -> None:
         self._server_started = False
 
+    async def healthcheck(self) -> bool:
+        """
+        Health check for the PrometheusExporter. This exporter is considered healthy if it can start the HTTP server and expose metrics.
+        """
+        success = True
+        error_message = ""
+        try:
+            await self.connect()
+        except Exception as e:
+            logger.error(f"Health check failed for PrometheusExporter: {e}")
+            success = False
+            error_message = str(e)
+
+        return success
+
+    async def describe(self) -> dict:
+        """
+        Return diagnostic details for the PrometheusExporter.
+        """
+        return {
+            "status": "healthy" if self._server_started else "unhealthy",
+            "message": "PrometheusExporter is operational." if self._server_started else "PrometheusExporter is not operational.",
+            "address": self.address,
+            "port": self.port,
+            "registry": str(self.registry),
+        }
+
+    async def recover(self) -> bool:
+        """
+        Attempt to recover the PrometheusExporter. Recovery is considered successful if the HTTP server can be started.
+        """
+        try:
+            if not self._server_started:
+                await self.connect()
+            return True
+        except Exception as e:
+            logger.error(f"Recovery failed for PrometheusExporter: {e}")
+            return False
