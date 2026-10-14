@@ -333,19 +333,71 @@ class AIMonitorSettings(BaseSettings):
         default=False,
         description="Whether Kafka exporter is enabled",
     )
-    kafka_bootstrap_servers: Optional[str] = Field(default=None, description="Kafka bootstrap servers")
-    kafka_security_protocol: Optional[str] = Field(default=None, description="Security protocol (PLAINTEXT, SASL_SSL, etc.)")
-    kafka_sasl_mechanism: Optional[str] = Field(default=None, description="SASL mechanism (e.g. PLAIN, SCRAM-SHA-256)")
-    kafka_sasl_username: Optional[SecretStr] = Field(default=None, description="Cluster API Key / Username")
-    kafka_sasl_password: Optional[SecretStr] = Field(default=None, description="Cluster API Secret / Password")
-    kafka_group_id: str = Field(default="aimonitor-group", description="Consumer group id")
-    kafka_auto_offset_reset: str = Field(default="earliest", description="Auto offset reset")
-    kafka_retry_policy: int = Field(default=3, description="Number of retries for Kafka producer")
-    kafka_delivery_timeout_ms: int = Field(default=120000, description="Delivery timeout in milliseconds for Kafka producer")
-    kafka_request_timeout_ms: int = Field(default=30000, description="Request timeout in milliseconds for Kafka producer")
-    kafka_socket_timeout_ms: int = Field(default=30000, description="Socket timeout in milliseconds for Kafka producer")
-    kafka_reconnect_backoff_ms: int = Field(default=1000, description="Reconnect backoff in milliseconds for Kafka producer")
-    kafka_reconnect_backoff_max_ms: int = Field(default=30000, description="Max reconnect backoff in milliseconds for Kafka producer")
+    kafka_bootstrap_servers: Optional[str] = Field(
+        default=None, 
+        description="Kafka bootstrap servers",
+        validation_alias=AliasChoices(*_KAFKA_BOOTSTRAP_SERVERS_ALIASES)
+    )
+    kafka_security_protocol: Optional[str] = Field(
+        default=None, 
+        description="Security protocol (PLAINTEXT, SASL_SSL, etc.)",
+        validation_alias=AliasChoices(*_KAFKA_SECURITY_PROTOCOL_ALIASES)
+    )
+    kafka_sasl_mechanism: Optional[str] = Field(
+        default=None, 
+        description="SASL mechanism (e.g. PLAIN, SCRAM-SHA-256)",
+        validation_alias=AliasChoices(*_KAFKA_SASL_MECHANISM_ALIASES)
+    )
+    kafka_sasl_username: Optional[SecretStr] = Field(
+        default=None, 
+        description="Cluster API Key / Username",
+        validation_alias=AliasChoices(*_KAFKA_SASL_USERNAME_ALIASES)
+    )
+    kafka_sasl_password: Optional[SecretStr] = Field(
+        default=None, 
+        description="Cluster API Secret / Password",
+        validation_alias=AliasChoices(*_KAFKA_SASL_PASSWORD_ALIASES)
+    )
+    kafka_group_id: str = Field(
+        default="aimonitor-group",
+        description="Consumer group id",
+        validation_alias=AliasChoices(*_KAFKA_GROUP_ID_ALIASES)
+    )
+    kafka_auto_offset_reset: str = Field(
+        default="earliest",
+        description="Auto offset reset",
+        validation_alias=AliasChoices(*_KAFKA_AUTO_OFFSET_RESET_ALIASES)
+    )
+    kafka_retry_policy: int = Field(
+        default=3,
+        description="Number of retries for Kafka producer",
+        validation_alias=AliasChoices(*_KAFKA_RETRY_POLICY_ALIASES)
+    )
+    kafka_delivery_timeout_ms: int = Field(
+        default=120000,
+        description="Delivery timeout in milliseconds for Kafka producer",
+        validation_alias=AliasChoices(*_KAFKA_DELIVERY_TIMEOUT_MS_ALIASES)
+    )
+    kafka_request_timeout_ms: int = Field(
+        default=30000,
+        description="Request timeout in milliseconds for Kafka producer",
+        validation_alias=AliasChoices(*_KAFKA_REQUEST_TIMEOUT_MS_ALIASES)
+    )
+    kafka_socket_timeout_ms: int = Field(
+        default=30000,
+        description="Socket timeout in milliseconds for Kafka producer",
+        validation_alias=AliasChoices(*_KAFKA_SOCKET_TIMEOUT_MS_ALIASES)
+    )
+    kafka_reconnect_backoff_ms: int = Field(
+        default=1000,
+        description="Reconnect backoff in milliseconds for Kafka producer",
+        validation_alias=AliasChoices(*_KAFKA_RECONNECT_BACKOFF_MS_ALIASES)
+    )
+    kafka_reconnect_backoff_max_ms: int = Field(
+        default=30000,
+        description="Max reconnect backoff in milliseconds for Kafka producer",
+        validation_alias=AliasChoices(*_KAFKA_RECONNECT_BACKOFF_MAX_MS_ALIASES)
+    )
     kafka_max_in_flight_requests_per_connection: Optional[int] = Field(
         default=5,
         description="Maximum number of in-flight requests per Kafka connection",
