@@ -5,7 +5,7 @@ This module provides a base class for all exporters, which can be extended to cr
 from abc import ABC, abstractmethod
 from core.event import BaseSignal, SignalType
 from typing import Callable, List, Optional
-from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 import httpx
 from pathlib import Path
 from configs.config import get_settings
@@ -147,7 +147,7 @@ def with_retry(func: Optional[Callable] = None):
     def decorator(fn: Callable):
         return retry(
             stop=stop_after_attempt(settings.retries_policy),
-            retry=retry_if_exception((ConnectionError, TimeoutError)),
+            retry=retry_if_exception_type((ConnectionError, TimeoutError)),
             wait=wait_exponential(),
             reraise=True,
         )(fn)

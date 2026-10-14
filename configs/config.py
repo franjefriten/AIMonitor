@@ -114,6 +114,20 @@ _KAFKA_MAX_WORKERS_ALIASES = frozenset({"max_workers", "maxWorkers", "kafka_max_
 _KAFKA_BATCH_SIZE_ALIASES = frozenset({"batch_size", "batchSize", "kafka_batch_size"})
 _KAFKA_MAX_IN_FLIGHT_REQUESTS_ALIASES = frozenset({"max_in_flight_requests_per_connection", "maxInFlightRequestsPerConnection", "kafka_max_in_flight_requests_per_connection"})
 _KAFKA_BUFFER_TIMEOUT_ALIASES = frozenset({"buffer_timeout", "bufferTimeout", "kafka_buffer_timeout"})
+_KAFKA_SASL_USERNAME_ALIASES = frozenset({"sasl_username", "sasl.username", "sasl-username", "saslUsername", "kafka_sasl_username"})
+_KAFKA_SASL_PASSWORD_ALIASES = frozenset({"sasl_password", "sasl.password", "sasl-password", "saslPassword", "kafka_sasl_password"})
+_KAFKA_SECURITY_PROTOCOL_ALIASES = frozenset({"security_protocol", "security.protocol", "security-protocol", "securityProtocol", "kafka_security_protocol"})
+_KAFKA_SASL_MECHANISM_ALIASES = frozenset({"sasl_mechanism", "sasl.mechanism", "sasl-mechanism", "saslMechanism", "kafka_sasl_mechanism"})
+_KAFKA_BOOTSTRAP_SERVERS_ALIASES = frozenset({"bootstrap_servers", "bootstrap.servers", "bootstrap-servers", "bootstrapServers", "kafka_bootstrap_servers"})
+_KAFKA_RECONNECT_BACKOFF_MAX_MS_ALIASES = frozenset({"reconnect_backoff_max_ms", "reconnect.backoff.max.ms", "reconnectBackoffMaxMs", "kafka_reconnect_backoff_max_ms"})
+_KAFKA_RECONNECT_BACKOFF_MS_ALIASES = frozenset({"reconnect_backoff_ms", "reconnect.backoff.ms", "reconnectBackoffMs", "kafka_reconnect_backoff_ms"})
+_KAFKA_SOCKET_TIMEOUT_MS_ALIASES = frozenset({"socket_timeout_ms", "socket.timeout.ms", "socketTimeoutMs", "kafka_socket_timeout_ms"})
+_KAFKA_RETRY_POLICY_ALIASES = frozenset({"retry_policy", "retry.policy", "retryPolicy", "kafka_retry_policy"})
+_KAFKA_GROUP_ID_ALIASES = frozenset({"group_id", "group.id", "groupId", "kafka_group_id"})
+_KAFKA_AUTO_OFFSET_RESET_ALIASES = frozenset({"auto_offset_reset", "auto.offset.reset", "autoOffsetReset", "kafka_auto_offset_reset"})
+_KAFKA_REQUEST_TIMEOUT_MS_ALIASES = frozenset({"request_timeout_ms", "request.timeout.ms", "requestTimeoutMs", "kafka_request_timeout_ms"})
+_KAFKA_DELIVERY_TIMEOUT_MS_ALIASES = frozenset({"delivery_timeout_ms", "delivery.timeout.ms", "deliveryTimeoutMs", "kafka_delivery_timeout_ms"})
+
 
 LOGGING_CONFIG = {
     "version": 1,
@@ -314,7 +328,7 @@ class AIMonitorSettings(BaseSettings):
         description="Prometheus URL to use",
         validation_alias=AliasChoices(*_PROMETHEUS_URL_ALIASES)
     )
-    # kafka
+    # Kafka flat fields are internal BaseSettings storage; use exporters.kafka publicly.
     kafka_enabled: bool = Field(
         default=False,
         description="Whether Kafka exporter is enabled",
@@ -609,6 +623,9 @@ class AIMonitorSettings(BaseSettings):
                 kafka_security_protocol = kafka.get("security_protocol")
                 if kafka_security_protocol is not None:
                     flattened_data["kafka_security_protocol"] = kafka_security_protocol
+                kafka_group_id = kafka.get("group_id")
+                if kafka_group_id is not None:
+                    flattened_data["kafka_group_id"] = kafka_group_id
                 kafka_auto_offset_reset = kafka.get("auto_offset_reset")
                 if kafka_auto_offset_reset is not None:
                     flattened_data["kafka_auto_offset_reset"] = kafka_auto_offset_reset
@@ -816,6 +833,9 @@ class AIMonitorSettings(BaseSettings):
                 kafka_security_protocol = kafka.get("security_protocol")
                 if kafka_security_protocol is not None:
                     flattened_data["kafka_security_protocol"] = kafka_security_protocol
+                kafka_group_id = kafka.get("group_id")
+                if kafka_group_id is not None:
+                    flattened_data["kafka_group_id"] = kafka_group_id
                 kafka_auto_offset_reset = kafka.get("auto_offset_reset")
                 if kafka_auto_offset_reset is not None:
                     flattened_data["kafka_auto_offset_reset"] = kafka_auto_offset_reset
@@ -1142,5 +1162,4 @@ def get_settings() -> AIMonitorSettings:
 
 
 settings = get_settings()
-
 

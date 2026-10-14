@@ -19,6 +19,14 @@ from utils.logger import logger
 
 settings = get_settings()
 
+_KAFKA_TOPICS_BY_SIGNAL = {
+    SignalType.EVENT: "aimonitor-events",
+    SignalType.METRIC: "aimonitor-metrics",
+    SignalType.SPAN: "aimonitor-spans",
+    SignalType.LOG: "aimonitor-logs",
+}
+
+
 def _encode_partition_key(tool_name: str) -> bytes:
     """
     Convert a tool_name into a stable byte key for Kafka.
@@ -51,7 +59,6 @@ class KafkaExporter(BaseExporter):
                 max_workers=max_workers,
                 batch_size=batch_size,
                 buffer_timeout=buffer_timeout,
-                acks=self.kafka_configs.get("acks", "all")
             )
             logger.info("Kafka producer initialized correctly")
         except Exception:
@@ -80,19 +87,11 @@ class KafkaExporter(BaseExporter):
             event = events[0]
             event_data = json.dumps(event.model_dump_json()).encode("utf-8")
             key = self._encode_partition_key(event.tool_name)
-            match event.signal_type:
-                case SignalType.EVENT:
-                    topic = "aimonitor-events"
-                case SignalType.METRIC:
-                    topic = "aimonitor-metrics"
-                case SignalType.SPAN:
-                    topic = "aimonitor-spans"
-                case SignalType.LOG:
-                    topic = "aimonitor-logs"
-                case _:
-                    logger.warning(f"Unknown signal type: {event.signal_type}, skipping export")
-                    events.pop(0)
-                    continue
+            topic = _KAFKA_TOPICS_BY_SIGNAL.get(event.event_type)
+            if topic is None:
+                logger.warning(f"Unknown signal type: {event.event_type}, skipping export")
+                events.pop(0)
+                continue
 
             try:
                 await self.producer.produce(
