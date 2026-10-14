@@ -8,6 +8,7 @@ from exporters.opentelemetry import OpenTelemetryExporter
 from exporters.prometheus import PrometheusExporter
 from exporters.redis import RedisExporter
 from exporters.sqlite import SQLiteExporter
+from utils.logger import setup_logging
 
 
 async def initialize_monitor(config_path: str | Path | None = None) -> AIMonitorSettings:
@@ -23,6 +24,8 @@ async def initialize_monitor(config_path: str | Path | None = None) -> AIMonitor
             await settings.load_from_yaml(path)
         elif path.suffix.lower() == ".json":
             await settings.load_from_json(path)
+
+    setup_logging(env_code=settings.app.env_code)
 
     from telemetry.api import telemetry_producer
     telemetry_producer.reset()
