@@ -26,7 +26,7 @@ async def initialize_monitor(config_path: str | Path | None = None) -> AIMonitor
 
     setup_logging(env_code=settings.app.env_code)
 
-    from telemetry.api import telemetry_producer
+    from aimonitor.telemetry.api import telemetry_producer
     telemetry_producer.reset()
 
     exporters = []
@@ -71,5 +71,5 @@ async def shutdown_monitor() -> None:
     settings = get_settings()
     settings.reset()
 
-    from telemetry.api import telemetry_producer
+    from aimonitor.telemetry.api import telemetry_producer
     telemetry_producer.reset()

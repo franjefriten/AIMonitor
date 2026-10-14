@@ -71,7 +71,7 @@ exporters:
         async def recover(self):
             return True
 
-    monkeypatch.setattr("bootstrap.PrometheusExporter", PrometheusStub)
+    monkeypatch.setattr("aimonitor.bootstrap.PrometheusExporter", PrometheusStub)
     initialized = await initialize_monitor(config_path)
     assert initialized.prometheus_enabled is True
     assert initialized.file_enabled is True

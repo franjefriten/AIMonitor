@@ -185,7 +185,7 @@ class TelemetryConsumer:
 
     async def get_sdk_readiness(self) -> Dict[str, Any]:
         """Return the registry-owned SDK health snapshot."""
-        from core.registry import registry
+        from aimonitor.core.registry import registry
 
         snapshot = await registry.health_snapshot()
         return snapshot.model_dump(mode="json")
