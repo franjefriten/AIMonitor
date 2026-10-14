@@ -1,6 +1,21 @@
 import random
-from datetime import datetime, UTC
-from core.event import MCPEvent , SpanEvent
+from datetime import datetime, timezone
+from aimonitor.core.event import MCPEvent , SpanEvent
+import pytest_asyncio
+
+from aimonitor.configs.config import get_settings
+from aimonitor.core.registry import registry
+from aimonitor.telemetry.api import telemetry_producer
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def reset_runtime_singletons():
+    """Start each test with a clean registry, settings singleton, and telemetry manager."""
+    await registry.reset()
+    get_settings().reset()
+    telemetry_producer.reset()
+    yield
+    await registry.reset()
 
 
 def _generate_mcp_event():
@@ -11,7 +26,7 @@ def _generate_mcp_event():
         error="",
         metadata={},
         delta=random.random(),
-        timestamp=datetime.now(UTC).strftime('%Y-%m-%d'),
+        timestamp=datetime.now(timezone.utc).strftime('%Y-%m-%d'),
         result={}
     )
 

@@ -19,25 +19,19 @@ Install only what you need:
 
 ```bash
 # OpenTelemetry integration
-pip install "aimonitor[opentelemetry]"
+pip install "ai-monitor-sdk[opentelemetry]"
 
 # SQLite export
-pip install "aimonitor[sqlite]"
+pip install "ai-monitor-sdk[sqlite]"
 
 # Prometheus metrics
-pip install "aimonitor[metrics]"
-
-# Redis export
-pip install "aimonitor[redis]"
+pip install "ai-monitor-sdk[prometheus]"
 
 # Kafka producer
-pip install "aimonitor[kafka]"
+pip install "ai-monitor-sdk[kafka]"
 
 # Multiple extras
-pip install "aimonitor[opentelemetry,sqlite,metrics,kafka]"
-
-# All extras
-pip install "aimonitor[opentelemetry,sqlite,metrics,redis,kafka]"
+pip install "ai-monitor-sdk[opentelemetry,sqlite,prometheus,kafka]"
 ```
 
 ### From source
@@ -60,7 +54,7 @@ If you're using `uv` as your Python package manager:
 
 ```bash
 uv pip install aimonitor
-uv pip install "aimonitor[opentelemetry,sqlite,metrics]"
+uv pip install "aimonitor[opentelemetry,sqlite,prometheus]"
 ```
 
 Or from source:
@@ -77,8 +71,8 @@ Check that AIMonitor is installed correctly:
 
 ```python
 import aimonitor
-from core.decorators import monitor_tool
-from core.registry import registry
+from aimonitor.core.decorators import monitor_tool
+from aimonitor.core.registry import registry
 
 print("✅ AIMonitor installed successfully!")
 ```
@@ -106,7 +100,7 @@ pip install aimonitor
 If you're using OpenTelemetry features, install the optional dependency:
 
 ```bash
-pip install "aimonitor[opentelemetry]"
+pip install "ai-monitor-sdk[opentelemetry]"
 ```
 
 ### ImportError: No module named 'aiosqlite'
@@ -114,7 +108,7 @@ pip install "aimonitor[opentelemetry]"
 For SQLite exporter:
 
 ```bash
-pip install "aimonitor[sqlite]"
+pip install "ai-monitor-sdk[sqlite]"
 ```
 
 ### ImportError: No module named 'prometheus_client'
@@ -122,7 +116,7 @@ pip install "aimonitor[sqlite]"
 For Prometheus exporter:
 
 ```bash
-pip install "aimonitor[metrics]"
+pip install "ai-monitor-sdk[metrics]"
 ```
 
 ## Next steps

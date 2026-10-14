@@ -1,4 +1,4 @@
-# 🔍 AIMonitor
+🔍 AIMonitor
 
 > A lightweight, modular observability toolkit for MCP (Multi-Channel Processing) workflows
 
@@ -22,30 +22,137 @@ AIMonitor tracks tool execution, exports monitoring events, and supports **OpenT
 ### Install
 
 ```bash
-pip install aimonitor
+pip install ai-monitor-sdk
 ```
 
-With optional dependencies:
+This will install the most basic implementation of AIMonitor, but most exporters will not work with it, as it depends on their own sdk to use them. Run the following command to install their optional dependencies depending on which exporters you want to make use of.
 
 ```bash
-pip install "aimonitor[opentelemetry,sqlite,metrics,kafka]"
+pip install "ai-monitor-sdk[opentelemetry,sqlite,prometheus,kafka]"
 ```
+
+### Exporters
+
+In AIMonitor, an *Exporter* refers to a class that inherits from *BaseExporter* class. Their purpose is to serve as a client to your custom storage for tool traces, tokens, etc. As such, AIMonitor comes with a set of programmed exporters:
+
+#### 🔌 Available Exporters
+
+| Exporter                        | Purpose                         | Status                       |
+| ------------------------------- | ------------------------------- | ---------------------------- |
+| **FileExporter**          | JSONL file output with rotation | ✅ Stable                    |
+| **SQLiteExporter**        | Local database storage          | ✅ Stable                    |
+| **PrometheusExporter**    | Prometheus metrics endpoint     | ⚠️ On development         |
+| **OpenTelemetryExporter** | OTel span export                | ✅ Stable                    |
+| **WebhookExporter**       | HTTP endpoint POST              | ✅ Stable                    |
+| **KafkaExporter**         | Kafka topic producer            | ✅ Stable                   |
+| **PostgreSQLExporter**    | Postgres implementation         | ❌ Coming on future releases |
+| **MongoDBExporter**       | MongoDb implementation          | ❌ Coming on future releases |
+
+However, AIMonitor is designed as a flexible sdk, meaning you can create your own custom exporters as long as you follow the contract explained later on the documentation of this repo.
+
+#### 🔧 Configuration
+
+AIMonitor is thought from the beginning with one core idea: **simple configuration**. As such, setting up exporters requires only two simple steps
+
+* Create a YAML/JSON config file following the example below. This will be used as the source of truth for your exporters' configuration
+
+```yaml
+app:
+  env: ENV
+tracking:
+  enabled: true
+  track_metrics: true
+  track_events: true
+  track_logs: true
+telemetry:
+  inner_telemetry: false
+  healthcheck_enabled: true
+  healthcheck_interval: 60
+exporters:
+  kafka:
+    enabled: true
+    bootstrap_servers: "localhost:9092"
+    producer:
+      acks: "all"
+      retries: 3
+      linger_ms: 5
+      compression: "none"
+      batch_size: 2048
+      max_workers: 12
+  prometheus:
+    enabled: true
+    url: "http://localhost:9000"
+  file:
+    enabled: true
+    path: "./logs"
+```
+
+* Inside the lifespan of your desired server, execute the `initialize_monitor` function
+
+```Python
+from aimonitor.bootstrap import initialize_monitor, shutdown_monitor
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await initialize_monitor(config_path="aimonitor_config.yaml")
+	yield
+	await shutdown_monitor()
+
+app = FastAPI(lifespan=lifespan)
+
+
+@app.get("/")
+async def hello_world():
+    return {"msg": "Hellow World!", "status": 200}
+```
+
+AIMonitor is **fully async** with options for syncronicity if necessary. The SDK also allows to use JSON files for the config file as well as using env variables, starting with `AIMONITOR_`. Refer to the documentation for extra examples and description.
 
 ### Monitor a tool
 
+AIMonitor allows you to monitor tools that are executed by an LLM or even tools executed through the MCP protocol, on an MCP server. The most basic example is this one
+
 ```python
-from core.decorators import monitor_tool
+from aimonitor.core.decorators import monitor_tool
 
 @monitor_tool
 async def fetch_data(user_id: str):
     return {"data": "example"}
 ```
 
+Assuming we are using FastMCP to create an mcp server, we can set up
+
+```Python
+from aimonitor.core.decorators import monitor_tool
+from fastmcp import FastMCP
+from aimonitor.bootstrap import initialize_monitor, shutdown_monitor
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await initialize_monitor(config_path="aimonitor_config.yaml")
+	yield
+	await shutdown_monitor()
+
+mcp = FastMCP(name="CalculatorServer", lifespan=lifespan)
+
+@mcp.tool
+@monitor_tool(track_duration=False, track_tool_count=True)
+def add(a: int, b: int) -> int:
+    """Adds two integer numbers together."""
+    return a + b
+```
+
+Refer to the documentation on [usage](docs/usage.md) for further explanation on how to set up
+
 ### Export events
 
 ```python
-from exporters.file import FileExporter
-from core.registry import registry
+from aimonitor.exporters.file import FileExporter
+from aimonitor.core.registry import registry
 
 exporter = FileExporter(base_uri="./logs")
 await exporter.connect()
@@ -61,46 +168,6 @@ registry.register(exporter)
 - **[Installation](docs/installation.md)** — Dependency management
 - **[Contributing](docs/CONTRIBUTING.md)** — Development workflow
 
-## 🔌 Available Exporters
-
-| Exporter | Purpose | Status |
-|----------|---------|--------|
-| **FileExporter** | JSONL file output with rotation | ✅ Stable |
-| **SQLiteExporter** | Local database storage | ✅ Stable |
-| **PrometheusExporter** | Prometheus metrics endpoint | ✅ Stable |
-| **OpenTelemetryExporter** | OTel span export | ✅ Stable |
-| **WebhookExporter** | HTTP endpoint POST | ✅ Stable |
-| **RedisExporter** | Redis pub/sub | ⚠️ Beta |
-| **KafkaExporter** | Kafka topic producer | ⚠️ Beta |
-
-## 🔧 Configuration
-
-### Environment variables
-
-```bash
-# Core settings
-AIMONITOR_ENABLED=true
-AIMONITOR_INNER_TELEMETRY=false
-
-# Export targets
-AIMONITOR_PROMETHEUS_URL=http://localhost:9000
-AIMONITOR_SQLITE_URI=./aimonitor.db
-
-# OpenTelemetry MCP exporter
-AIMONITOR_OTEL_MCP_EXPORTER_ENABLED=true
-AIMONITOR_OTEL_MCP_SERVICE_NAME=my-service
-```
-
-### Or with YAML
-
-```yaml
-enabled: true
-inner_telemetry: false
-prometheus_url: "http://localhost:9000"
-otel_mcp_exporter_enabled: true
-otel_mcp_service_name: "my-mcp-service"
-```
-
 ## 🧪 Testing
 
 Run the test suite:
@@ -109,11 +176,21 @@ Run the test suite:
 # Unit tests
 python -m pytest tests/unit -q
 
+# Integration tests
+# Run furst the setup scripts foumd om /scripts
+
+# kafka
+sh scripts/prometheus/sh/run_prometheus.sh
+# prometheus
+sh scripts/kafka/sh/run_kafka.sh
+
+python -m pytest tests/integration
+
 # All tests
 python -m pytest tests/ -v
 ```
 
-Tests run automatically on every PR to `main`.
+Tests run automatically on every PR to `main`. Scripts for batch/Powershell are also found under the  `/batch` subfolder for test running
 
 ## 📦 Deployment
 

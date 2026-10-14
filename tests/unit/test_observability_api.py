@@ -2,11 +2,11 @@ import asyncio
 
 import pytest
 
-from core.event import SignalType
-from core.observability import monitor
-from exporters.base import BaseExporter
-from core.registry import ExporterRegistry
-from utils.logger import logger
+from aimonitor.core.event import SignalType
+from aimonitor.core.observability import monitor
+from aimonitor.exporters.base import BaseExporter
+from aimonitor.core.registry import ExporterRegistry
+from aimonitor.utils.logger import logger
 
 
 @pytest.mark.asyncio
@@ -19,6 +19,15 @@ async def test_observability_api_emits_event_log_and_metric_signals():
 
         async def export_batch(self, event_batch):
             captured.extend(event_batch)
+
+        async def healthcheck(self):
+            pass
+
+        async def describe(self):
+            pass
+
+        async def recover(self):
+            return True
 
     registry = ExporterRegistry(batch_size=3, flush_delta=0.1, num_workers=1)
     registry._exporters = []

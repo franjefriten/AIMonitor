@@ -1,4 +1,4 @@
-from exporters.kafka import _encode_partition_key
+from aimonitor.exporters.kafka import _encode_partition_key
 
 
 def test_partition_key_is_stable_and_bytes():

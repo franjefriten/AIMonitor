@@ -3,13 +3,13 @@ Exporters are responsible for taking the data from the database and converting i
 This module provides a base class for all exporters, which can be extended to create custom exporters for different formats.
 """
 from abc import ABC, abstractmethod
-from core.event import BaseSignal, SignalType
 from typing import Callable, List, Optional
-from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 import httpx
 from pathlib import Path
-from configs.config import get_settings
 
+from aimonitor.core.event import BaseSignal, SignalType
+from aimonitor.configs.config import get_settings
 
 settings = get_settings()
 
@@ -18,7 +18,7 @@ class BaseExporter(ABC):
     """
     Base class for all exporters. This class defines the interface that all exporters must implement.
     """
-    SUPPORTED_SIGNALS: set[SignalType] = {SignalType.EVENT, SignalType.METRIC, SignalType.LOG, SignalType.SPAN}
+    SUPPORTED_SIGNALS: set[SignalType] = {SignalType.EVENT, SignalType.METRIC, SignalType.LOG, SignalType.SPAN, SignalType._INNER}  # logs everything
 
     async def export(self, event: BaseSignal) -> None:
         """
@@ -44,6 +44,39 @@ class BaseExporter(ABC):
     async def close(self) -> None:
         """Optional lifecycle hook for exporters that require cleanup."""
         return None
+
+    @abstractmethod    
+    async def healthcheck(self) -> bool:
+        """Mandatory method to check the health of the exporter. 
+        Must be always implemented.
+    The healthcheck should emit a boolean value indicating the health of the exporter.
+        """
+        pass
+
+    @abstractmethod
+    async def describe(self) -> dict:
+        """Return diagnostic details for the exporter.
+
+        The returned data is informational only. Health state is owned by the
+        registry snapshot and must be determined by ``healthcheck()``.
+        Example:
+        {
+            "status": "healthy",
+            "message": "Exporter is connected to the destination.",
+            "timestamp": "2023-01-01T12:00:00Z"
+        }
+        Exporters may add backend-specific diagnostic fields.
+        """
+        pass
+
+    @abstractmethod
+    async def recover(self) -> bool:
+        """Mandatory method to attempt recovery of the exporter. Must be always implemented.
+        Should return True if the recovery was successful, False otherwise.
+        """
+        pass
+    
+
 
 
 class HTTPBaseExporter(BaseExporter):
@@ -111,10 +144,15 @@ class BaseDatabaseExporter(BaseExporter):
         pass
 
 
-def with_retry(func: Callable):
-    return retry(
-        stop=stop_after_attempt(settings.retries_policy),
-        retry=retry_if_exception((ConnectionError, TimeoutError)),
-        wait=wait_exponential(),
-        reraise=True
-    )(func)
+def with_retry(func: Optional[Callable] = None):
+    def decorator(fn: Callable):
+        return retry(
+            stop=stop_after_attempt(settings.retries_policy),
+            retry=retry_if_exception_type((ConnectionError, TimeoutError)),
+            wait=wait_exponential(),
+            reraise=True,
+        )(fn)
+
+    if func is None:
+        return decorator
+    return decorator(func)

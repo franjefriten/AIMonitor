@@ -1,0 +1,88 @@
+from aimonitor.exporters.base import BaseExporter, HTTPBaseExporter
+from aimonitor.core.event import BaseSignal, SignalType
+from aimonitor.utils.logger import logger
+from aimonitor.exporters.base import with_retry
+
+import httpx
+import asyncio
+from typing import List
+
+
+class WebhookExporter(HTTPBaseExporter):
+    """
+    Exporter for HTTP, used to send events to an HTTP endpoint.
+    """
+
+    SUPPORTED_SIGNALS = {SignalType.EVENT, SignalType.LOG, SignalType.METRIC, SignalType.SPAN}
+    
+    def __init__(self, url, headers=None, auth=None):
+        super().__init__(url=url, headers=headers, auth=auth)
+
+    async def export(self, event: BaseSignal) -> None:
+        await self.export_batch([event])
+            
+    @with_retry
+    async def export_batch(self, event_batch: List[BaseSignal]) -> None:
+        if not self.client:
+            raise RuntimeError("Exporter not connected. Call connect() before exporting.")
+        payload = []
+        for event in event_batch:
+            if event.event_type not in self.SUPPORTED_SIGNALS:
+                logger.warning(
+                    "Event type '%s' with id: '%s' is not supported by WebhookExporter. Skipping export for event.",
+                    event.event_type,
+                    event.id
+                )
+            else:
+                payload.append(event.model_dump())
+        
+        response = await self.client.post(
+            self.url, 
+            json=payload,
+            timeout=10.0
+        )
+        response.raise_for_status()
+    
+    async def healthcheck(self) -> bool:
+        success = True
+        error_message = ""
+        try:
+            response = await self.client.get(self.url, timeout=10.0)
+            response.raise_for_status()
+        except Exception as e:
+            logger.error(f"Health check failed for WebhookExporter: {e}")
+            success = False
+            error_message = str(e)
+
+        if success:
+            logger.info("Health check passed for WebhookExporter.")
+        else:
+            logger.error("Health check failed for WebhookExporter.")
+        return success
+
+    async def describe(self) -> dict:
+        """
+        Return diagnostic details for the WebhookExporter, including the URL and connection status.
+        """
+        if not self.client:
+            return {"status": "unhealthy", "message": "WebhookExporter is not connected."}
+
+        return {
+            "status": "healthy",
+            "message": "WebhookExporter is operational.",
+            "url": self.url,
+            "headers": self.headers,
+            "auth": str(self.auth) if self.auth else None,
+        }
+    
+    async def recover(self) -> bool:
+        """
+        Attempt to recover the WebhookExporter. Recovery is considered successful if the HTTP client can be reinitialized.
+        """
+        try:
+            if not self.client:
+                self.client = httpx.AsyncClient()
+            return True
+        except Exception as e:
+            logger.error(f"Recovery failed for WebhookExporter: {e}")
+            return False

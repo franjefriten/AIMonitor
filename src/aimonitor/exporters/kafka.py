@@ -1,0 +1,177 @@
+try:
+    from confluent_kafka.aio import AIOProducer
+except ImportError:
+    AIOProducer = None
+   
+from aimonitor.exporters.base import BaseExporter, with_retry
+from aimonitor.core.event import MCPEvent, BaseSignal, SignalType
+
+import socket
+import hashlib
+import json
+from typing import List, Optional, Literal
+import string
+
+from aimonitor.configs.config import get_settings
+from aimonitor.utils.logger import logger
+
+settings = get_settings()
+
+_KAFKA_TOPICS_BY_SIGNAL = {
+    SignalType.EVENT: "aimonitor-events",
+    SignalType.METRIC: "aimonitor-metrics",
+    SignalType.SPAN: "aimonitor-spans",
+    SignalType.LOG: "aimonitor-logs",
+}
+
+
+def _encode_partition_key(tool_name: str) -> bytes:
+    """
+    Convert a tool_name into a stable byte key for Kafka.
+    Kafka uses the key to determine the partitioning internally, so the
+    value is a deterministic byte-string rather than an arbitrary integer.
+    """
+    if not tool_name:
+        return b"default"
+
+    digest = hashlib.sha256(tool_name.encode("utf-8")).hexdigest()
+    return digest[:16].encode("utf-8")
+
+
+class KafkaExporter(BaseExporter):
+
+    def __init__(
+            self, 
+            #topics: List[Literal["aimonitor-events", "aimonitor-metrics", "aimonitor-spans", "aimonitor-logs"]] = ["aimonitor-events"],
+            kafka_configs: dict = settings.get_kafka_config(),
+            max_workers: int = 5,
+            batch_size: int = 10,
+            buffer_timeout: float = 1.0,
+        ):
+        super().__init__()
+        if AIOProducer is None:
+            raise ImportError(
+                "confluent_kafka is required for KafkaExporter. "
+                "Install it with pip install .[kafka] or uv sync --extra kafka"
+            )
+        self.kafka_configs = kafka_configs
+        #self.topics = topics
+        try:
+            self.producer = AIOProducer(
+                producer_conf=self.kafka_configs,
+                max_workers=max_workers,
+                batch_size=batch_size,
+                buffer_timeout=buffer_timeout,
+            )
+            logger.info("Kafka producer initialized correctly")
+        except Exception:
+            logger.error("Kafka producer could not be initialized")
+            raise
+
+    @staticmethod
+    def _report_delivery(err: str | None, msg: str | None): # helper function for acked
+        if err is not None:
+            logger.info(f"Failed to deliver message: {str(msg)}")
+        else:
+            logger.info(f"Event delivered! {str(msg)}")
+
+    @staticmethod
+    def _encode_partition_key(tool_name: str) -> bytes:
+        """
+        Convert a tool_name into a stable byte key for Kafka.
+        Kafka uses the key to determine the partitioning internally, so the
+        value is a deterministic byte-string rather than an arbitrary integer.
+        """
+        return _encode_partition_key(tool_name)
+
+    @with_retry
+    async def export_batch(self, events: List[BaseSignal]) -> None:
+        while events:
+            event = events[0]
+            event_data = json.dumps(event.model_dump_json()).encode("utf-8")
+            key = self._encode_partition_key(event.tool_name)
+            topic = _KAFKA_TOPICS_BY_SIGNAL.get(event.event_type)
+            if topic is None:
+                logger.warning(f"Unknown signal type: {event.event_type}, skipping export")
+                events.pop(0)
+                continue
+
+            try:
+                await self.producer.produce(
+                    topic=topic,
+                    key=key,
+                    value=event_data,
+                    callback=self._report_delivery,
+                )
+                await self.producer.poll(0)
+            except BufferError:
+                logger.warning("Kafka queue overloaded (BufferError), forcing flush...")
+                await self.producer.flush()
+            except Exception as exc:
+                logger.error(f"Unexpected error happened: {repr(exc)}")
+            else:
+                events.pop(0)
+
+    async def close(self) -> None:
+        logger.info("Closing kafka producer and flushing queue...")
+        await self.producer.flush()
+
+    
+    async def healthcheck(self) -> bool:
+        """
+        Health check for the KafkaExporter. This exporter is considered healthy if it can connect to the Kafka broker.
+        """
+        success = True
+        error_message = ""
+        try:
+            # Attempt to produce a test message to the Kafka broker
+            test_message = json.dumps({"healthcheck": "test"}).encode("utf-8")
+            await self.producer.produce(
+                topic="aimonitor-healthcheck",
+                key=b"healthcheck",
+                value=test_message,
+                callback=self._report_delivery,
+            )
+            await self.producer.flush()
+        except Exception as e:
+            logger.error(f"Health check failed for KafkaExporter: {e}")
+            success = False
+            error_message = str(e)
+
+        if success:
+            logger.info("Health check passed for KafkaExporter.")
+        else:
+            logger.error("Health check failed for KafkaExporter.")
+        return success
+    
+    async def describe(self) -> dict:
+        """
+        Return diagnostic details for the KafkaExporter, including broker information.
+        """
+        try:
+            metadata = await self.producer.get_metadata(timeout=5.0)
+            return {
+                "status": "healthy",
+                "message": "KafkaExporter is operational.",
+                "brokers": [broker.host for broker in metadata.brokers.values()],
+                "topics": list(metadata.topics.keys()),
+            }
+        except Exception as e:
+            logger.error(f"Failed to retrieve Kafka metadata: {e}")
+            return {
+                "status": "unhealthy",
+                "message": f"Failed to retrieve Kafka metadata: {e}",
+            }
+
+    async def recover(self) -> bool:
+        """
+        Attempt to recover the KafkaExporter. Recovery is considered successful if the Kafka producer can be reinitialized.
+        """
+        try:
+            if not self.producer:
+                from confluent_kafka import Producer
+                self.producer = Producer(self.config)
+            return True
+        except Exception as e:
+            logger.error(f"Recovery failed for KafkaExporter: {e}")
+            return False

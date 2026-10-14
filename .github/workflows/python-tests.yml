@@ -4,21 +4,103 @@ on:
   pull_request:
     branches:
       - main
+      - develop
+  workflow_dispatch:
 
 jobs:
-  test:
+
+  unit-core:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11', '3.12', '3.13', '3.14']
+    
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install -e .
+
+      - name: Run unit tests
+        run: |
+          python -m pytest tests/unit -q
+          
+  optional-imports:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11', '3.12', '3.13', '3.14']
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install -e ".[opentelemetry,sqlite,kafka,prometheus]"
+      - name: Check optional dependency imports
+        run: |
+          python -c "import opentelemetry, confluent_kafka, aiosqlite, prometheus_client"
+
+  full-test-suite:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
+          python-version: '3.14'
+
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip setuptools wheel uv
-          python -m pip install -r requirements.txt
-          python -m pip install .[opentelemetry,sqlite,metrics,kafka,prometheus]
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install -e ".[opentelemetry,sqlite,kafka,prometheus]"
+
       - name: Run unit tests
         run: |
           python -m pytest tests/unit -q
+        
+      - name: Setup docker containers for integration tests on Linux
+        if: runner.os == 'Linux'
+        run: |
+          sh ./scripts/kafka/sh/run_kafka.sh
+          sh ./scripts/prometheus/sh/run_prometheus.sh
+      
+      - name: Setup docker containers for integration tests on non-Linux
+        if: runner.os != 'Linux'
+        run: |
+          call ./scripts/kafka/bat/run_kafka.bat
+          call ./scripts/prometheus/bat/run_prometheus.bat
+      
+      - name: Wait for services to be ready
+        run: |
+          echo "Waiting for kafka..."
+          until nc -z localhost 9092; do sleep 1; done
+          echo "Kafka is ready."
+          echo "Waiting for prometheus..."
+          until nc -z localhost 9090; do sleep 1; done
+          until curl -s http://localhost:9090; do sleep 1; done
+          echo "Prometheus is ready."
+      - name: Run integration tests
+        run: |
+          python -m pytest tests/integration -m integration -q
+
+      - name: Tear down docker containers for integration tests on Linux
+        if: ${{always() && runner.os == 'Linux'}}
+        run: |
+          sh ./scripts/kafka/sh/stop_kafka.sh
+          sh ./scripts/prometheus/sh/stop_prometheus.sh
+
+      - name: Tear down docker containers for integration tests on non-Linux
+        if: ${{always() && runner.os != 'Linux'}}
+        run: |
+          call ./scripts/kafka/bat/stop_kafka.bat
+          call ./scripts/prometheus/bat/stop_prometheus.bat

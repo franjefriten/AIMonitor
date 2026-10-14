@@ -1,8 +1,16 @@
 import types
 import sys
+import asyncio
 from unittest.mock import patch
 
-from telemetry.api import configure_internal_telemetry, internal_telemetry_manager
+from aimonitor.core.event import HealthCheckSnapshot, HealthStatus
+from aimonitor.telemetry.api import (
+    configure_internal_telemetry,
+    get_process_liveness,
+    get_sdk_readiness,
+    get_telemetry_status,
+    telemetry_producer,
+)
 
 
 class _DummySpan:
@@ -65,7 +73,7 @@ def _build_fake_opentelemetry_module():
 def test_configure_internal_telemetry_disabled_forces_noop():
     manager = configure_internal_telemetry(enabled=False, service_name="test-service")
 
-    assert manager is internal_telemetry_manager
+    assert manager is telemetry_producer
     assert manager.enabled is False
     assert manager.tracer is None
     assert manager.meter is None
@@ -87,16 +95,16 @@ def test_configure_internal_telemetry_enabled_without_opentelemetry_is_noop():
     assert manager.meter is None
 
 
-def test_track_event_is_noop_when_disabled():
+def test_record_event_is_noop_when_disabled():
     manager = configure_internal_telemetry(enabled=False)
-    manager.track_event("event.test", {"k": "v"})
+    manager.record_event("event.test", {"k": "v"})
 
     assert manager.tracer is None
 
 
-def test_track_metric_counter_is_noop_when_disabled():
+def test_record_metric_is_noop_when_disabled():
     manager = configure_internal_telemetry(enabled=False)
-    manager.track_metric_counter("metric.test", value=10, attributes={"env": "test"})
+    manager.record_metric("metric.test", value=10, attributes={"env": "test"})
 
     assert manager.meter is None
 
@@ -106,8 +114,8 @@ def test_configure_internal_telemetry_enabled_records_events_and_metrics():
 
     with patch.dict("sys.modules", {"opentelemetry": fake_module}):
         manager = configure_internal_telemetry(enabled=True, service_name="test-service")
-        manager.track_event("event.sample", {"tenant": "acme", "count": 2})
-        manager.track_metric_counter("metric.sample", value=3, attributes={"env": "test"})
+        manager.record_event("event.sample", {"tenant": "acme", "count": 2})
+        manager.record_metric("metric.sample", value=3, attributes={"env": "test"})
 
     assert manager.enabled is True
     assert len(fake_tracer.started_spans) == 1
@@ -125,8 +133,61 @@ def test_configure_internal_telemetry_reuses_meter_counters():
 
     with patch.dict("sys.modules", {"opentelemetry": fake_module}):
         manager = configure_internal_telemetry(enabled=True, service_name="test-service")
-        manager.track_metric_counter("metric.sample", value=1)
-        manager.track_metric_counter("metric.sample", value=2)
+        manager.record_metric("metric.sample", value=1)
+        manager.record_metric("metric.sample", value=2)
 
     counter = fake_meter.counters["metric.sample"]
     assert counter.calls == [(1, {}), (2, {})]
+
+
+def test_record_exporter_healthcheck_reports_exporter_state_to_internal_telemetry():
+    fake_module, fake_tracer, _ = _build_fake_opentelemetry_module()
+
+    with patch.dict("sys.modules", {"opentelemetry": fake_module}):
+        manager = configure_internal_telemetry(enabled=True, service_name="test-service")
+        asyncio.run(
+            manager.record_exporter_healthcheck(
+                HealthCheckSnapshot(
+                    exporter_name="KafkaExporter",
+                    status=HealthStatus.HEALTHY,
+                    message="Broker reachable",
+                ),
+                {"topic": "aimonitor-healthcheck"},
+            )
+        )
+
+    assert manager.enabled is True
+    assert len(fake_tracer.started_spans) == 1
+    event_name, span = fake_tracer.started_spans[0]
+    assert event_name == "sdk.exporter.healthcheck"
+    assert span.attributes["exporter_name"] == "KafkaExporter"
+    assert span.attributes["status"] == HealthStatus.HEALTHY.value
+    assert span.attributes["message"] == "Broker reachable"
+    assert span.attributes["topic"] == "aimonitor-healthcheck"
+
+
+def test_telemetry_consumer_reports_local_provider_state():
+    fake_module, _, _ = _build_fake_opentelemetry_module()
+
+    with patch.dict("sys.modules", {"opentelemetry": fake_module}):
+        manager = configure_internal_telemetry(enabled=True, service_name="test-service")
+        telemetry_status = get_telemetry_status()
+
+    assert telemetry_status == {
+        "enabled": True,
+        "service_name": "test-service",
+        "tracer_available": True,
+        "meter_available": True,
+    }
+
+
+def test_process_liveness_is_independent_from_telemetry_provider():
+    import asyncio
+
+    configure_internal_telemetry(enabled=False)
+    liveness = asyncio.run(get_process_liveness())
+
+    assert liveness["status"] == "alive"
+    assert liveness["component"] == "aimonitor-sdk"
+    assert liveness["pid"] > 0
+    assert liveness["uptime_seconds"] >= 0

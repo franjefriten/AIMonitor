@@ -1,8 +1,8 @@
 import pytest
 import asyncio
-from core.registry import registry
-from exporters.base import BaseExporter
-from core.decorators import monitor_tool
+from aimonitor.core.registry import registry
+from aimonitor.exporters.base import BaseExporter
+from aimonitor.core.decorators import monitor_tool
 
 @pytest.mark.asyncio
 async def test_tool_monitoring_workflow():
@@ -15,6 +15,12 @@ async def test_tool_monitoring_workflow():
             captured_events.append(event)
         async def export_batch(self, event_batch: list):
             captured_events.extend(event_batch)
+        async def healthcheck(self):
+            pass
+        async def describe(self):
+            pass
+        async def recover(self):
+            return True
 
     spy = SpyExporter()
     

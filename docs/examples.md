@@ -1,3 +1,8 @@
+```python
+aimonitor.
+```
+
+
 # Examples
 
 Practical examples demonstrating AIMonitor features.
@@ -7,7 +12,7 @@ Practical examples demonstrating AIMonitor features.
 Monitor an async function with the `@monitor_tool` decorator:
 
 ```python
-from core.decorators import monitor_tool
+from aimonitor.core.decorators import monitor_tool
 import asyncio
 
 @monitor_tool
@@ -28,8 +33,8 @@ Events are automatically captured and sent to registered exporters.
 Export events to JSONL files with automatic rotation:
 
 ```python
-from exporters.file import FileExporter
-from core.registry import registry
+from aimonitor.exporters.file import FileExporter
+from aimonitor.core.registry import registry
 
 # Create and register exporter
 exporter = FileExporter(
@@ -47,8 +52,8 @@ registry.register(exporter)
 Persist events to SQLite for querying:
 
 ```python
-from exporters.sqlite import SQLiteExporter
-from core.registry import registry
+from aimonitor.exporters.sqlite import SQLiteExporter
+from aimonitor.core.registry import registry
 
 exporter = SQLiteExporter(dsn="./aimonitor.sqlite")
 await exporter.connect()
@@ -67,8 +72,8 @@ async with aiosqlite.connect("./aimonitor.sqlite") as db:
 Expose metrics to Prometheus:
 
 ```python
-from exporters.prometheus import PrometheusExporter
-from core.registry import registry
+from aimonitor.exporters.prometheus import PrometheusExporter
+from aimonitor.core.registry import registry
 
 exporter = PrometheusExporter(address="http://0.0.0.0:9000")
 await exporter.connect()
@@ -84,8 +89,8 @@ registry.register(exporter)
 Export MCP events as OTel spans:
 
 ```python
-from exporters.opentelemetry import OpenTelemetryExporter
-from core.registry import registry
+from aimonitor.exporters.opentelemetry import OpenTelemetryExporter
+from aimonitor.core.registry import registry
 
 # Configure OTel collector
 import os
@@ -106,10 +111,10 @@ registry.register(exporter)
 Register multiple exporters simultaneously:
 
 ```python
-from exporters.file import FileExporter
-from exporters.sqlite import SQLiteExporter
-from exporters.prometheus import PrometheusExporter
-from core.registry import registry
+from aimonitor.exporters.file import FileExporter
+from aimonitor.exporters.sqlite import SQLiteExporter
+from aimonitor.exporters.prometheus import PrometheusExporter
+from aimonitor.core.registry import registry
 
 # File export for archival
 file_exp = FileExporter(base_uri="./logs")
@@ -134,7 +139,7 @@ registry.register(prom_exp)
 Tool arguments containing sensitive keys are automatically redacted:
 
 ```python
-from core.decorators import monitor_tool
+from aimonitor.core.decorators import monitor_tool
 
 @monitor_tool
 async def authenticate(username: str, password: str, api_key: str):
@@ -149,7 +154,7 @@ await authenticate("john", "secret123", "key_abc123")
 Customize sensitive keys:
 
 ```python
-from configs.config import get_settings
+from aimonitor.configs.config import get_settings
 
 settings = get_settings()
 settings.sensitive_keys.add("custom_secret")
@@ -160,24 +165,34 @@ settings.sensitive_keys.add("custom_secret")
 Enable AIMonitor's own observability (separate from event export):
 
 ```python
-from telemetry.api import configure_internal_telemetry
+from aimonitor.telemetry.api import (
+    configure_internal_telemetry,
+    get_sdk_readiness,
+    get_telemetry_status,
+)
 
 # Enable internal traces
-manager = configure_internal_telemetry(
+producer = configure_internal_telemetry(
     enabled=True,
     service_name="aimonitor-sdk"
 )
 
-# Now AIMonitor itself emits spans to OTel
+# The producer emits spans and metrics to the configured OTel provider.
+
+# Consumers query local provider availability and SDK health snapshots.
+telemetry_status = get_telemetry_status()
+sdk_readiness = await get_sdk_readiness()
 ```
+
+The SDK does not query traces or metrics from an external OpenTelemetry backend. Use the backend-specific client or HTTP API for that operation.
 
 ## Webhook export
 
 Send events to an HTTP endpoint:
 
 ```python
-from exporters.http import WebhookExporter
-from core.registry import registry
+from aimonitor.exporters.http import WebhookExporter
+from aimonitor.core.registry import registry
 
 exporter = WebhookExporter(
     url="https://example.com/webhooks/events",
@@ -194,8 +209,8 @@ registry.register(exporter)
 Stream events to Kafka:
 
 ```python
-from exporters.kafka import KafkaExporter
-from core.registry import registry
+from aimonitor.exporters.kafka import KafkaExporter
+from aimonitor.core.registry import registry
 
 exporter = KafkaExporter(
     topic="aimonitor-events",
@@ -215,7 +230,7 @@ await exporter.close()
 Tools can emit error events:
 
 ```python
-from core.decorators import monitor_tool
+from aimonitor.core.decorators import monitor_tool
 
 @monitor_tool
 async def risky_operation():
@@ -235,14 +250,14 @@ await risky_operation()
 Always close exporters when done:
 
 ```python
-from core.registry import registry
+from aimonitor.core.registry import registry
 
 # Use with statement for safety
 class MonitoredApp:
     async def __aenter__(self):
         # Setup exporters
         return self
-    
+  
     async def __aexit__(self, *args):
         # Graceful shutdown
         await registry.shutdown()
@@ -258,20 +273,20 @@ async with MonitoredApp() as app:
 Extend `BaseExporter` for custom behavior:
 
 ```python
-from exporters.base import BaseExporter
-from core.event import MCPEvent
+from aimonitor.exporters.base import BaseExporter
+from aimonitor.core.event import MCPEvent
 from typing import List
 
 class CustomExporter(BaseExporter):
     async def export(self, event: MCPEvent) -> None:
         print(f"Custom export: {event.tool_name}")
-    
+  
     async def export_batch(self, event_batch: List[MCPEvent]) -> None:
         for event in event_batch:
             await self.export(event)
 
 # Register
-from core.registry import registry
+from aimonitor.core.registry import registry
 registry.register(CustomExporter())
 ```
 

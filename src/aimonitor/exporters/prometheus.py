@@ -1,0 +1,115 @@
+from typing import List, Optional
+from urllib.parse import urlparse
+
+from aimonitor.configs.config import settings
+from aimonitor.core.event import BaseSignal, SignalType
+from aimonitor.exporters.base import BaseExporter
+from aimonitor.utils.logger import logger
+
+try:
+    from prometheus_client import CollectorRegistry, Counter, Histogram, start_http_server
+except ImportError:  # pragma: no cover - import guard
+    CollectorRegistry = None
+    Counter = None
+    Histogram = None
+    start_http_server = None
+
+
+class PrometheusExporter(BaseExporter):
+    """Exporter that exposes AIMonitor events as Prometheus metrics. Only allows `MetricEvents` to be exported, and will ignore any other event type. This exporter is intended to be used with Prometheus, which will scrape the metrics from the specified address."""
+
+    SUPPORTED_SIGNALS = {SignalType.METRIC}
+
+    def __init__(self, address: str = "http://0.0.0.0:9000", registry: Optional["CollectorRegistry"] = None): # type: ignore
+        super().__init__()
+        if CollectorRegistry is None:
+            raise ImportError(
+                "prometheus_client is required for PrometheusExporter. "
+                "Install it with pip install .[prometheus] or uv sync --extra prometheus"
+            )
+        self.address = address
+        self.registry = registry if registry is not None else CollectorRegistry(auto_describe=True)
+        self._server_started = False
+
+        parsed_url = urlparse(self.address)
+        self.port = parsed_url.port or 9000
+        self.addr = parsed_url.hostname or "0.0.0.0"
+
+        self.counter = Counter(
+            name="mcp_total_calls_total",
+            documentation="Total tool executions",
+            labelnames=["tool_name", "status"],
+            registry=self.registry,
+        )
+        self.histogram = Histogram(
+            name="mcp_tool_duration_seconds",
+            documentation="Total execution duration",
+            labelnames=["tool_name"],
+            registry=self.registry,
+        )
+
+    async def connect(self) -> None:
+        if self._server_started:
+            return
+        start_http_server(port=self.port, addr=self.addr, registry=self.registry)
+        self._server_started = True
+
+    async def export(self, event: BaseSignal) -> None:
+        await self.export_batch([event])
+
+    async def export_batch(self, event_batch: List[BaseSignal]) -> None:
+        for event in event_batch:
+            if event.event_type not in self.SUPPORTED_SIGNALS:
+                logger.warning(
+                    "Event type '%s' with id: '%s' is not supported by PrometheusExporter. Skipping export for event.",
+                    event.event_type,
+                    event.id
+                )
+                continue
+            labels = getattr(event, "labels", {})
+            tool_name = labels.get("tool_name", "unknown")
+            status = labels.get("status", "unknown")
+            self.counter.labels(tool_name=tool_name, status=status).inc()
+            self.histogram.labels(tool_name=tool_name).observe(event.value)
+
+    async def close(self) -> None:
+        self._server_started = False
+
+    async def healthcheck(self) -> bool:
+        """
+        Health check for the PrometheusExporter. This exporter is considered healthy if it can start the HTTP server and expose metrics.
+        """
+        success = True
+        error_message = ""
+        try:
+            await self.connect()
+        except Exception as e:
+            logger.error(f"Health check failed for PrometheusExporter: {e}")
+            success = False
+            error_message = str(e)
+
+        return success
+
+    async def describe(self) -> dict:
+        """
+        Return diagnostic details for the PrometheusExporter.
+        """
+        return {
+            "status": "healthy" if self._server_started else "unhealthy",
+            "message": "PrometheusExporter is operational." if self._server_started else "PrometheusExporter is not operational.",
+            "address": self.address,
+            "port": self.port,
+            "registry": str(self.registry),
+        }
+
+    async def recover(self) -> bool:
+        """
+        Attempt to recover the PrometheusExporter. Recovery is considered successful if the HTTP server can be started.
+        """
+        try:
+            if not self._server_started:
+                await self.connect()
+            return True
+        except Exception as e:
+            logger.error(f"Recovery failed for PrometheusExporter: {e}")
+            return False

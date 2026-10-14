@@ -1,7 +1,7 @@
-from core.event import BaseSignal, SignalType, MCPEvent, LogEvent, MetricEvent, SpanEvent
-from core.observability import monitor
-from core.registry import registry
-from core.decorators import monitor_tool, track_tool_call_event, track_tool_metrics
+from aimonitor.core.event import BaseSignal, SignalType, MCPEvent, LogEvent, MetricEvent, SpanEvent
+from aimonitor.core.observability import monitor
+from aimonitor.core.registry import registry
+from aimonitor.core.decorators import monitor_tool, track_tool_call_event, track_tool_metrics
 
 from typing import Any, Dict, List, Optional
 import asyncio
@@ -18,6 +18,12 @@ async def test_emit_span_event():
 
         async def export_batch(self, event_batch):
             captured.extend(event_batch)
+        
+        async def healthcheck(self):
+            pass
+
+        async def describe(self):
+            pass
 
     registry.register(exporter=SpyExporter())
 
@@ -58,6 +64,12 @@ async def test_emit_multi_span_event():
 
         async def export_batch(self, event_batch):
             captured.extend(event_batch)
+
+        async def healthcheck(self):
+            pass
+
+        async def describe(self):
+            pass
 
     registry.register(exporter=SpyExporter())
 
