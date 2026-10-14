@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, UTC
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 from uuid import uuid4
 
@@ -38,7 +38,7 @@ class Trace:
             root_span_id=self.root_span_id,
             operation_name=operation_name,
             metadata=metadata or {},
-            timestamp=datetime.now(UTC),
+            timestamp=datetime.now(timezone.utc),
             error="",
             status=Status.SUCCESS,
         )
@@ -68,4 +68,3 @@ class Trace:
     
     
     
-

@@ -1,6 +1,6 @@
 import asyncio
 import socket
-from datetime import datetime, UTC
+from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
@@ -21,7 +21,7 @@ def _build_event(tool_name: str = "some_tool", status: str = "success", delta: f
     return MCPEvent(
         tool_name=tool_name,
         args={"arg": "value"},
-        timestamp=datetime.now(UTC),
+        timestamp=datetime.now(timezone.utc),
         delta=delta,
         status=status,
         error="",
@@ -113,4 +113,3 @@ exporters:
         assert msg.value() is not None
     finally:
         await consumer.close()
-

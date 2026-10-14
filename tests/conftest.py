@@ -1,5 +1,5 @@
 import random
-from datetime import datetime, UTC
+from datetime import datetime, timezone
 from aimonitor.core.event import MCPEvent , SpanEvent
 import pytest_asyncio
 
@@ -26,7 +26,7 @@ def _generate_mcp_event():
         error="",
         metadata={},
         delta=random.random(),
-        timestamp=datetime.now(UTC).strftime('%Y-%m-%d'),
+        timestamp=datetime.now(timezone.utc).strftime('%Y-%m-%d'),
         result={}
     )
 

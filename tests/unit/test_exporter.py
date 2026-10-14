@@ -1,6 +1,6 @@
 import pytest
 from pathlib import Path
-from datetime import datetime, UTC
+from datetime import datetime, timezone
 import random
 
 from aimonitor.exporters.file import FileExporter 

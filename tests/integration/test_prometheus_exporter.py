@@ -1,6 +1,6 @@
 import asyncio
 import socket
-from datetime import datetime, UTC
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -24,7 +24,7 @@ def _build_metric_event(
         value=delta,
         metric_type="histogram",
         labels={"tool_name": tool_name, "status": status},
-        timestamp=datetime.now(UTC),
+        timestamp=datetime.now(timezone.utc),
         metadata={},
     )
 

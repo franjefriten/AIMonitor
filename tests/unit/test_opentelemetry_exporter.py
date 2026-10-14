@@ -1,5 +1,5 @@
 import types
-from datetime import datetime, UTC
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 from aimonitor.core.event import MCPEvent, Status
@@ -46,7 +46,7 @@ def _build_event() -> MCPEvent:
     return MCPEvent(
         tool_name="sample_tool",
         args={"tenant": "acme", "items": [1, 2, 3]},
-        timestamp=datetime.now(UTC),
+        timestamp=datetime.now(timezone.utc),
         delta=0.15,
         status=Status.SUCCESS,
         error="",

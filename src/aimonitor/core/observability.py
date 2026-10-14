@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, UTC
+from datetime import datetime, timezone
 from typing import Any, Optional
 from uuid import uuid4
 from contextlib import asynccontextmanager, contextmanager
@@ -62,7 +62,7 @@ class ObservabilityAPI:
             status=status if isinstance(status, Status) else Status(status),
             error=error,
             delta=delta,
-            timestamp=timestamp or datetime.now(UTC),
+            timestamp=timestamp or datetime.now(timezone.utc),
             metadata=metadata or {},
             event_type=SignalType.EVENT,
             version=version
@@ -141,19 +141,19 @@ class ObservabilityAPI:
         root_span_event = trace.start_span(operation_name=operation_name, metadata=metadata)
 
         token = _trace_context.set(trace)
-        start_time = datetime.now(UTC)
+        start_time = datetime.now(timezone.utc)
         try:
             yield root_span_event
         except Exception as e:
             logger.error(f"Exception occurred during span '{operation_name}': {e}")
-            end_time = datetime.now(UTC)
+            end_time = datetime.now(timezone.utc)
             delta = (end_time - start_time).total_seconds()
             root_span_event.delta = delta
             root_span_event.status = Status.FAILURE
             if not capture_exceptions:
                 raise e
         finally:
-            end_time = datetime.now(UTC)
+            end_time = datetime.now(timezone.utc)
             delta = (end_time - start_time).total_seconds()
             root_span_event.delta = delta
             if root_span_event.status not in {Status.FAILURE, Status.ERROR}:
@@ -178,19 +178,19 @@ class ObservabilityAPI:
         root_span_event = trace.start_span(operation_name=operation_name, metadata=metadata)
 
         token = _trace_context.set(trace)
-        start_time = datetime.now(UTC)
+        start_time = datetime.now(timezone.utc)
         try:
             yield root_span_event
         except Exception as e:
             logger.error(f"Exception occurred during span '{operation_name}': {e}")
-            end_time = datetime.now(UTC)
+            end_time = datetime.now(timezone.utc)
             delta = (end_time - start_time).total_seconds()
             root_span_event.delta = delta
             root_span_event.status = Status.FAILURE
             if not capture_exceptions:
                 raise e
         finally:
-            end_time = datetime.now(UTC)
+            end_time = datetime.now(timezone.utc)
             delta = (end_time - start_time).total_seconds()
             root_span_event.delta = delta
             if root_span_event.status not in {Status.FAILURE, Status.ERROR}:

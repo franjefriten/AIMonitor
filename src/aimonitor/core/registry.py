@@ -14,7 +14,7 @@ from aimonitor.configs.config import get_settings
 
 import asyncio
 import time
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from aimonitor.utils.logger import logger
 from aimonitor.telemetry.api import telemetry_producer
@@ -96,7 +96,7 @@ class ExporterRegistry:
             "stopped_count": sum(item.status == HealthStatus.STOPPED for item in snapshots),
         }
         self._health.summary = counts
-        self._health.checked_at = datetime.now(UTC)
+        self._health.checked_at = datetime.now(timezone.utc)
 
         active_statuses = {
             item.status
@@ -194,7 +194,7 @@ class ExporterRegistry:
         await telemetry_producer.record_exporter_healthcheck(snapshot)
 
     async def _run_healthcheck(self, exporter: BaseExporter) -> HealthCheckSnapshot:
-        started_at = datetime.now(UTC)
+        started_at = datetime.now(timezone.utc)
 
         try:
             health = await exporter.healthcheck()
@@ -215,7 +215,7 @@ class ExporterRegistry:
                 last_success_at=last_success_at,
                 last_failure_at=last_failure_at,
                 last_check_started_at=started_at,
-                last_check_finished_at=datetime.now(UTC)
+                last_check_finished_at=datetime.now(timezone.utc)
             )
         except Exception:
             # FAILURE means the healthcheck itself could not complete. This is
@@ -228,7 +228,7 @@ class ExporterRegistry:
                 last_success_at=None,
                 last_failure_at=started_at,
                 last_check_started_at=started_at,
-                last_check_finished_at=datetime.now(UTC)
+                last_check_finished_at=datetime.now(timezone.utc)
             )
         # Capture the previous snapshot before replacing it so transitions compare old and new state.
         snapshot_key = self._snapshot_key(exporter)
@@ -241,7 +241,7 @@ class ExporterRegistry:
         
         
     async def _attempt_exporter_recovery(self, exporter: BaseExporter) -> bool:
-        started_at = datetime.now(UTC)
+        started_at = datetime.now(timezone.utc)
         pre_health_recovery_snapshot = HealthCheckSnapshot(
             exporter_name=exporter.__class__.__name__,
             status=HealthStatus.RECOVERING,
@@ -249,7 +249,7 @@ class ExporterRegistry:
             last_success_at=None,
             last_failure_at=None,
             last_check_started_at=started_at,
-            last_check_finished_at=datetime.now(UTC)
+            last_check_finished_at=datetime.now(timezone.utc)
         )
         previous = self._health.exporters.get(self._snapshot_key(exporter))
         self._update_exporter_health(exporter, pre_health_recovery_snapshot)
@@ -292,7 +292,7 @@ class ExporterRegistry:
                 last_success_at=None,
                 last_failure_at=started_at if status in {HealthStatus.FAILURE, HealthStatus.DOWN} else None,
                 last_check_started_at=started_at,
-                last_check_finished_at=datetime.now(UTC)
+                last_check_finished_at=datetime.now(timezone.utc)
             )
             # Now, we have to attempt a healthcheck to verify if the exporter has recovered.
             health_snapshot = await self._run_healthcheck(exporter)
@@ -316,7 +316,7 @@ class ExporterRegistry:
                 last_success_at=None,
                 last_failure_at=started_at,
                 last_check_started_at=started_at,
-                last_check_finished_at=datetime.now(UTC)
+                last_check_finished_at=datetime.now(timezone.utc)
             )
         finally:
             if post_health_recovery_snapshot is not None:
@@ -432,7 +432,7 @@ class ExporterRegistry:
             else "Exporter batch delivery failed."
         )
         if not success:
-            snapshot.last_failure_at = datetime.now(UTC)
+            snapshot.last_failure_at = datetime.now(timezone.utc)
         self._update_sdk_health()
 
     def start_workers(self):

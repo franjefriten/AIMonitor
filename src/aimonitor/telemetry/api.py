@@ -1,7 +1,7 @@
 import sys
 import os
 import time
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional, Dict, Any
 from aimonitor.utils.logger import logger
@@ -159,7 +159,7 @@ class TelemetryConsumer:
 
     def __init__(self, producer: TelemetryProducer):
         self._producer = producer
-        self._process_started_at = datetime.now(UTC)
+        self._process_started_at = datetime.now(timezone.utc)
         self._process_started_monotonic = time.monotonic()
 
     def get_telemetry_status(self) -> Dict[str, Any]:
