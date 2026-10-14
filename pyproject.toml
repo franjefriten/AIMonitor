@@ -1,6 +1,6 @@
 [project]
 name = "ai-monitor-sdk"
-version = "0.0.1"
+version = "0.0.2"
 description = "Framework modular de observabilidad para herramientas MCP"
 authors = [
     {name = "Francisco Jesús Frías Tenza", email = "fj.friastenza@gmail.com"}
