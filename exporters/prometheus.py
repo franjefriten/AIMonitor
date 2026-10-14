@@ -20,7 +20,7 @@ class PrometheusExporter(BaseExporter):
 
     SUPPORTED_SIGNALS = {SignalType.METRIC}
 
-    def __init__(self, address: str = "http://0.0.0.0:9000", registry: Optional["CollectorRegistry"] = None):
+    def __init__(self, address: str = "http://0.0.0.0:9000", registry: Optional["CollectorRegistry"] = None): # type: ignore
         super().__init__()
         if CollectorRegistry is None:
             raise ImportError(
