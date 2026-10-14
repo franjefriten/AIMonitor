@@ -1,10 +1,10 @@
 from pydantic import BaseModel, Field
-from datetime import datetime, UTC
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict
 from uuid import uuid4
 import socket
-from configs.config import get_settings
+from aimonitor.configs.config import get_settings
 from datetime import datetime
 
 settings = get_settings()
@@ -106,7 +106,7 @@ class SDKHealthStatus(str, Enum):
 
 class BaseSignal(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()), description="Unique identifier for the signal.")
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC), description="The timestamp of when the signal was generated.")
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="The timestamp of when the signal was generated.")
     event_type: SignalType
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata associated with the signal.")
     environment: str = Field(default=settings.app.env_code, description="The environment in which the signal was generated, e.g., 'production', 'staging', etc.")
@@ -131,11 +131,13 @@ class BaseSignal(BaseModel):
             );
         """
 
+_STATUS_SQL_VALUES = ", ".join(f"'{status.value}'" for status in Status)
+
 _MAP_SQLITE_TYPING = {
     str: "TEXT",
     float: "REAL",
     datetime: "NUMERIC",
-    Status: f"TEXT CHECK (status IN ({'\''+'\',\''.join(Status._member_map_.values())+'\''}))",
+    Status: f"TEXT CHECK (status IN ({_STATUS_SQL_VALUES}))",
     Any: "BLOB",
     dict: "BLOB"
 }

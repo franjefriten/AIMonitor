@@ -2,13 +2,14 @@
 Exporter module for console, used mostly for debugging purposes
 """
 
-from exporters.base import BaseExporter
-from core.event import BaseSignal, SignalType
-from utils.logger import logger
+from aimonitor.exporters.base import BaseExporter
+from aimonitor.core.event import BaseSignal, SignalType
+from aimonitor.utils.logger import logger
+
 from typing import List
 import io
 import sys
-from datetime import datetime, UTC
+from datetime import datetime, timezone
 
 
 class ConsoleExporter(BaseExporter):
@@ -29,7 +30,7 @@ class ConsoleExporter(BaseExporter):
                 event.id
                 )       
             return
-        output = f"[TRACE][{datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S.%f')}]"
+        output = f"[TRACE][{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')}]"
         output += f"\n{event.model_dump()}"
         self.stream.write(output + "\n")
 
@@ -37,7 +38,7 @@ class ConsoleExporter(BaseExporter):
             self.stream.flush()
     
     async def export_batch(self, event_batch: List[BaseSignal]) -> None:
-        timestamp = datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S.%f')
+        timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')
         output_lines = f"[TRACE][{timestamp}]"
 
         for event in event_batch:
@@ -59,7 +60,7 @@ class ConsoleExporter(BaseExporter):
         """
         Health check for the ConsoleExporter. Since this exporter writes to the console, it is always considered healthy.
         """
-        self.stream.write("[TRACE][{}] Health check passed for ConsoleExporter.\n".format(datetime.now(UTC).strftime('%Y-%m-%d %H:%M:%S.%f')))
+        self.stream.write("[TRACE][{}] Health check passed for ConsoleExporter.\n".format(datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')))
         if hasattr(self.stream, "flush"):
             self.stream.flush()
         return True

@@ -2,11 +2,11 @@ import asyncio
 
 import pytest
 
-from core.event import SignalType
-from core.observability import monitor
-from exporters.base import BaseExporter
-from core.registry import ExporterRegistry
-from utils.logger import logger
+from aimonitor.core.event import SignalType
+from aimonitor.core.observability import monitor
+from aimonitor.exporters.base import BaseExporter
+from aimonitor.core.registry import ExporterRegistry
+from aimonitor.utils.logger import logger
 
 
 @pytest.mark.asyncio

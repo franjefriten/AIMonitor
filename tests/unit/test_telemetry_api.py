@@ -3,8 +3,8 @@ import sys
 import asyncio
 from unittest.mock import patch
 
-from core.event import HealthCheckSnapshot, HealthStatus
-from telemetry.api import (
+from aimonitor.core.event import HealthCheckSnapshot, HealthStatus
+from aimonitor.telemetry.api import (
     configure_internal_telemetry,
     get_process_liveness,
     get_sdk_readiness,

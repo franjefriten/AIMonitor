@@ -1,6 +1,6 @@
 [project]
 name = "ai-monitor-sdk"
-version = "0.0.1"
+version = "0.0.2"
 description = "Framework modular de observabilidad para herramientas MCP"
 authors = [
     {name = "Francisco Jesús Frías Tenza", email = "fj.friastenza@gmail.com"}
@@ -16,7 +16,7 @@ dependencies = [
     "pyyaml>=6.0.3",
     "tenacity>=9.1.4",
 ]
-requires-python = ">=3.10, <3.14"
+requires-python = ">=3.10, <3.15"
 readme = "README.md"
 license = "MIT"
 
@@ -39,7 +39,10 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["core", "exporters", "utils"]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.uv]
 # Configuración específica para uv si quieres optimizar bloqueos

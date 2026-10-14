@@ -1,4 +1,4 @@
-from configs.config import get_settings
+from aimonitor.configs.config import get_settings
 
 settings = get_settings()
 

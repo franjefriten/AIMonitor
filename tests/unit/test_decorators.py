@@ -1,8 +1,8 @@
 import pytest
 import asyncio
-from core.registry import registry
-from exporters.base import BaseExporter
-from core.decorators import monitor_tool
+from aimonitor.core.registry import registry
+from aimonitor.exporters.base import BaseExporter
+from aimonitor.core.decorators import monitor_tool
 
 @pytest.mark.asyncio
 async def test_tool_monitoring_workflow():

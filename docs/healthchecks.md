@@ -5,7 +5,7 @@ AIMonitor provides a small asynchronous Python API for health information. It do
 ## Available functions
 
 ```python
-from telemetry.api import get_process_liveness, get_sdk_readiness, get_telemetry_status
+from aimonitor.telemetry.api import get_process_liveness, get_sdk_readiness, get_telemetry_status
 
 liveness = await get_process_liveness()
 readiness = await get_sdk_readiness()
@@ -61,8 +61,8 @@ The host application owns the HTTP server and decides which routes to expose:
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
-from bootstrap import initialize_monitor
-from telemetry.api import get_process_liveness, get_sdk_readiness
+from aimonitor.bootstrap import initialize_monitor, shutdown_monitor
+from aimonitor.telemetry.api import get_process_liveness, get_sdk_readiness
 
 
 @asynccontextmanager
@@ -70,7 +70,7 @@ async def lifespan(app: FastAPI):
     await initialize_monitor("config.yaml")
     yield
     from core.registry import registry
-    await registry.shutdown()
+    await shutdown_monitor()
 
 
 app = FastAPI(lifespan=lifespan)
@@ -101,7 +101,7 @@ The same functions can be connected to Starlette, Flask through an adapter, or a
 A custom exporter must implement `export_batch()`, `healthcheck()`, `describe()`, and `recover()`:
 
 ```python
-from exporters.base import BaseExporter
+from aimonitor.exporters.base import BaseExporter
 
 
 class CustomExporter(BaseExporter):
@@ -123,11 +123,11 @@ class CustomExporter(BaseExporter):
 
 The registry maps healthcheck results to snapshots:
 
-| Snapshot status | Meaning |
-| --- | --- |
-| `healthy` | The healthcheck completed and returned `True`. |
-| `down` | The healthcheck completed and returned `False`. The exporter is known to be unhealthy. |
-| `failure` | The healthcheck could not complete because it raised an exception or timed out. The exporter is also considered unhealthy, but its health could not be evaluated normally. |
-| `recovering` | Recovery is in progress after an unhealthy result. |
+| Snapshot status | Meaning                                                                                                                                                                    |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `healthy`     | The healthcheck completed and returned`True`.                                                                                                                            |
+| `down`        | The healthcheck completed and returned`False`. The exporter is known to be unhealthy.                                                                                    |
+| `failure`     | The healthcheck could not complete because it raised an exception or timed out. The exporter is also considered unhealthy, but its health could not be evaluated normally. |
+| `recovering`  | Recovery is in progress after an unhealthy result.                                                                                                                         |
 
 Recovery is followed by another healthcheck before the exporter can become `healthy` again.

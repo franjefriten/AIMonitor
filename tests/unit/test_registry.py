@@ -1,8 +1,8 @@
 import pytest
 
-from exporters.base import BaseExporter
-from core.event import HealthStatus
-from core.registry import ExporterRegistry, registry
+from aimonitor.exporters.base import BaseExporter
+from aimonitor.core.event import HealthStatus
+from aimonitor.core.registry import ExporterRegistry, registry
 from tests.conftest import _generate_mcp_event
 
 import asyncio

@@ -26,9 +26,8 @@ jobs:
 
             - name: Install dependencies
               run: |
-                  python -m pip install --upgrade pip setuptools wheel uv
-                  python -m pip install -r requirements.txt
-                  python -m pip install .[opentelemetry,sqlite,kafka,prometheus]
+                  python -m pip install --upgrade pip setuptools wheel uv build twine
+                  python -m pip install -e ".[opentelemetry,sqlite,kafka,prometheus]"
 
             - name: Run unit tests
               run: |
@@ -36,7 +35,7 @@ jobs:
 
             - name: Check optional dependency imports
               run: |
-                  python -c "import opentelemetry, confluent_kafka, aiosqlite, prometheus_client"
+                  python -c "import aimonitor; import opentelemetry, confluent_kafka, aiosqlite, prometheus_client; print(aimonitor.__version__)"
 
             - name: Setup docker containers for integration tests on Linux
               if: runner.os == 'Linux'
@@ -88,7 +87,7 @@ jobs:
 
         environment:
             name: production
-            url: https://pypi.org/project/aimonitor/
+            url: https://pypi.org/project/ai-monitor-sdk/
 
         steps:
             - name: Checkout code
@@ -101,13 +100,13 @@ jobs:
 
             - name: Install dependencies
               run: |
-                  python -m pip install --upgrade pip setuptools wheel uv build
-                  python -m pip install -r requirements.txt
-                  python -m pip install .[opentelemetry,sqlite,kafka,prometheus]
+                  python -m pip install --upgrade pip setuptools wheel uv build twine
+                  python -m pip install -e ".[opentelemetry,sqlite,kafka,prometheus]"
 
             - name: Build package
               run: |
                   python -m build
+                  python -m twine check dist/*
 
             - name: Publish to PyPI with trusted publishing
               uses: pypa/gh-action-pypi-publish@release/v1

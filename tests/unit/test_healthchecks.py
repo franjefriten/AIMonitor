@@ -1,5 +1,5 @@
-from exporters.base import BaseExporter, with_retry
-from core.event import (
+from aimonitor.exporters.base import BaseExporter, with_retry
+from aimonitor.core.event import (
     MCPEvent,
     BaseSignal,
     SignalType,
@@ -8,15 +8,15 @@ from core.event import (
     SDKHealthStatus,
     HealthStatus,
 )
-from core.registry import registry
-from telemetry.api import (
+from aimonitor.core.registry import registry
+from aimonitor.telemetry.api import (
     get_process_liveness,
     get_sdk_readiness,
     telemetry_producer,
 )
 
 import pytest
-from core.registry import ExporterRegistry
+from aimonitor.core.registry import ExporterRegistry
 import asyncio
 
 

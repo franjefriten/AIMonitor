@@ -1,10 +1,10 @@
 from typing import List, Optional
 from urllib.parse import urlparse
 
-from configs.config import settings
-from core.event import BaseSignal, SignalType
-from exporters.base import BaseExporter
-from utils.logger import logger
+from aimonitor.configs.config import settings
+from aimonitor.core.event import BaseSignal, SignalType
+from aimonitor.exporters.base import BaseExporter
+from aimonitor.utils.logger import logger
 
 try:
     from prometheus_client import CollectorRegistry, Counter, Histogram, start_http_server

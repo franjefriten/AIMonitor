@@ -1,13 +1,13 @@
 from pathlib import Path
 
-from configs.config import AIMonitorSettings, get_settings
-from core.registry import registry
-from exporters.file import FileExporter
-from exporters.kafka import KafkaExporter
-from exporters.opentelemetry import OpenTelemetryExporter
-from exporters.prometheus import PrometheusExporter
-from exporters.redis import RedisExporter
-from exporters.sqlite import SQLiteExporter
+from aimonitor.configs.config import AIMonitorSettings, get_settings
+from aimonitor.core.registry import registry
+from aimonitor.exporters.file import FileExporter
+from aimonitor.exporters.kafka import KafkaExporter
+from aimonitor.exporters.opentelemetry import OpenTelemetryExporter
+from aimonitor.exporters.prometheus import PrometheusExporter
+from aimonitor.exporters.sqlite import SQLiteExporter
+from aimonitor.utils.logger import setup_logging
 
 
 async def initialize_monitor(config_path: str | Path | None = None) -> AIMonitorSettings:
@@ -24,13 +24,12 @@ async def initialize_monitor(config_path: str | Path | None = None) -> AIMonitor
         elif path.suffix.lower() == ".json":
             await settings.load_from_json(path)
 
-    from telemetry.api import telemetry_producer
+    setup_logging(env_code=settings.app.env_code)
+
+    from aimonitor.telemetry.api import telemetry_producer
     telemetry_producer.reset()
 
     exporters = []
-
-    if settings.exporters.redis.enabled and settings.exporters.redis.url is not None:
-        exporters.append(RedisExporter(settings.exporters.redis.url))
 
     if settings.exporters.sqlite.enabled and settings.exporters.sqlite.uri is not None:
         exporters.append(SQLiteExporter(settings.exporters.sqlite.uri))
@@ -72,5 +71,5 @@ async def shutdown_monitor() -> None:
     settings = get_settings()
     settings.reset()
 
-    from telemetry.api import telemetry_producer
+    from aimonitor.telemetry.api import telemetry_producer
     telemetry_producer.reset()

@@ -1,6 +1,6 @@
 import asyncio
 import socket
-from datetime import datetime, UTC
+from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
@@ -8,12 +8,12 @@ import httpx
 import pytest
 from confluent_kafka import aio
 
-import core.decorators as decorators_module
-from core.decorators import monitor_tool
-from core.event import MCPEvent
-from core.registry import ExporterRegistry
-from exporters.kafka import KafkaExporter
-from configs.config import get_settings
+import aimonitor.core.decorators as decorators_module
+from aimonitor.core.decorators import monitor_tool
+from aimonitor.core.event import MCPEvent
+from aimonitor.core.registry import ExporterRegistry
+from aimonitor.exporters.kafka import KafkaExporter
+from aimonitor.configs.config import get_settings
 
 settings = get_settings()
 
@@ -21,7 +21,7 @@ def _build_event(tool_name: str = "some_tool", status: str = "success", delta: f
     return MCPEvent(
         tool_name=tool_name,
         args={"arg": "value"},
-        timestamp=datetime.now(UTC),
+        timestamp=datetime.now(timezone.utc),
         delta=delta,
         status=status,
         error="",
@@ -113,4 +113,3 @@ exporters:
         assert msg.value() is not None
     finally:
         await consumer.close()
-

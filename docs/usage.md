@@ -1,5 +1,3 @@
-	
-
 # AIMonitor Usage Guide
 
 ## Overview
@@ -11,13 +9,13 @@ AIMonitor is an async-first observability toolkit for MCP workflows. It tracks t
 Install the package from PyPI or GitHub:
 
 ```bash
-pip install aimonitor-sdk
+pip install ai-monitor-sdk
 ```
 
 Optional integrations:
 
 ```bash
-pip install "aimonitor-sdk[opentelemetry,sqlite,prometheus,kafka]"
+pip install "ai-monitor-sdk[opentelemetry,sqlite,prometheus,kafka]"
 ```
 
 ## Async bootstrap
@@ -25,7 +23,7 @@ pip install "aimonitor-sdk[opentelemetry,sqlite,prometheus,kafka]"
 The runtime entry point is now the async bootstrap:
 
 ```python
-from bootstrap import initialize_monitor
+from aimonitor.bootstrap import initialize_monitor
 
 async def main():
     settings = await initialize_monitor("config.yaml")
@@ -61,7 +59,7 @@ AIMONITOR_OTEL_MCP_SPAN_PREFIX=mcp.tool
 ### Instrumenting a tool
 
 ```python
-from core.decorators import monitor_tool
+from aimonitor.core.decorators import monitor_tool
 
 @monitor_tool
 async def fetch_data(user_id: str, limit: int = 10):
@@ -81,8 +79,8 @@ The decorator automatically records:
 ### Registering exporters
 
 ```python
-from exporters.file import FileExporter
-from core.registry import registry
+from aimonitor.exporters.file import FileExporter
+from aimonitor.core.registry import registry
 
 exporter = FileExporter(base_uri="./logs")
 await exporter.connect()
@@ -94,7 +92,7 @@ registry.register(exporter)
 ### FileExporter
 
 ```python
-from exporters.file import FileExporter
+from aimonitor.exporters.file import FileExporter
 
 exporter = FileExporter(base_uri="./monitoring_logs")
 await exporter.connect()
@@ -104,7 +102,7 @@ registry.register(exporter)
 ### SQLiteExporter
 
 ```python
-from exporters.sqlite import SQLiteExporter
+from aimonitor.exporters.sqlite import SQLiteExporter
 
 exporter = SQLiteExporter(dsn="./aimonitor.sqlite")
 await exporter.connect()
@@ -114,7 +112,7 @@ registry.register(exporter)
 ### PrometheusExporter
 
 ```python
-from exporters.prometheus import PrometheusExporter
+from aimonitor.exporters.prometheus import PrometheusExporter
 
 exporter = PrometheusExporter(address="http://0.0.0.0:9000")
 await exporter.connect()
@@ -124,7 +122,7 @@ registry.register(exporter)
 ### KafkaExporter
 
 ```python
-from exporters.kafka import KafkaExporter
+from aimonitor.exporters.kafka import KafkaExporter
 
 exporter = KafkaExporter(
     kafka_configs={
@@ -182,7 +180,7 @@ exporters:
 Load it like this:
 
 ```python
-from configs.config import get_settings
+from aimonitor.configs.config import get_settings
 
 settings = get_settings()
 await settings.load_from_yaml("config.yaml")
@@ -224,7 +222,7 @@ Errors are captured in the emitted event payload with status and error details.
 ## Graceful shutdown
 
 ```python
-from core.registry import registry
+from aimonitor.core.registry import registry
 
 async def main():
     try:
@@ -237,8 +235,8 @@ async def main():
 
 ```python
 import asyncio
-from bootstrap import initialize_monitor
-from core.decorators import monitor_tool
+from aimonitor.bootstrap import initialize_monitor
+from aimonitor.core.decorators import monitor_tool
 
 @monitor_tool
 async def process_request(request_id: str, api_key: str):

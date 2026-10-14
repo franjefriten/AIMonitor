@@ -1,12 +1,12 @@
 import sys
 import os
 import time
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional, Dict, Any
-from utils.logger import logger
-from configs.config import get_settings
-from core.event import HealthCheckSnapshot as HealthCheckEvent
+from aimonitor.utils.logger import logger
+from aimonitor.configs.config import get_settings
+from aimonitor.core.event import HealthCheckSnapshot as HealthCheckEvent
 
 
 class TelemetryProducer:
@@ -159,7 +159,7 @@ class TelemetryConsumer:
 
     def __init__(self, producer: TelemetryProducer):
         self._producer = producer
-        self._process_started_at = datetime.now(UTC)
+        self._process_started_at = datetime.now(timezone.utc)
         self._process_started_monotonic = time.monotonic()
 
     def get_telemetry_status(self) -> Dict[str, Any]:
@@ -185,7 +185,7 @@ class TelemetryConsumer:
 
     async def get_sdk_readiness(self) -> Dict[str, Any]:
         """Return the registry-owned SDK health snapshot."""
-        from core.registry import registry
+        from aimonitor.core.registry import registry
 
         snapshot = await registry.health_snapshot()
         return snapshot.model_dump(mode="json")

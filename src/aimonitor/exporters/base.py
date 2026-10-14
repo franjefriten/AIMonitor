@@ -3,12 +3,13 @@ Exporters are responsible for taking the data from the database and converting i
 This module provides a base class for all exporters, which can be extended to create custom exporters for different formats.
 """
 from abc import ABC, abstractmethod
-from core.event import BaseSignal, SignalType
 from typing import Callable, List, Optional
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 import httpx
 from pathlib import Path
-from configs.config import get_settings
+
+from aimonitor.core.event import BaseSignal, SignalType
+from aimonitor.configs.config import get_settings
 
 settings = get_settings()
 

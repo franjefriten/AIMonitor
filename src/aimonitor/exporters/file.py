@@ -1,17 +1,20 @@
-from exporters.base import BaseExporter, HTTPBaseExporter
-from core.event import BaseSignal, SignalType
-from utils.logger import logger
+from aimonitor.exporters.base import BaseExporter, HTTPBaseExporter
+from aimonitor.core.event import BaseSignal, SignalType
+from aimonitor.utils.logger import logger
+from aimonitor.exporters.base import with_retry
+
+
 import httpx
 import asyncio
 from datetime import datetime
-from datetime import UTC
-from exporters.base import with_retry
+from datetime import timezone
 from typing import List, Literal, Optional
 from aiofiles import os
 from typing import Protocol
 import aiofiles
 from pathlib import Path
-# Tu Protocolo está perfecto
+
+
 class AsyncWritable(Protocol):
     async def write(self, data: str) -> int: ...
     async def writelines(self, lines: List[str]) -> None: ...
@@ -41,11 +44,11 @@ class FileExporter(BaseExporter):
 
         # rotation vars
         self.rotation = 1
-        self.date: datetime = datetime.now(UTC).date()
+        self.date: datetime = datetime.now(timezone.utc).date()
         self.file_uri: str = self._generate_uri()
 
     def _is_date_today(self) -> bool:
-        return self.date == datetime.now(UTC).date()
+        return self.date == datetime.now(timezone.utc).date()
 
     def _generate_uri(self):
         return self.base_uri / f"{self.date.strftime(r'%Y-%m-%d')}_logfile{'_' + str(self.rotation) if self.rotation > 1 else ''}.jsonl"
@@ -54,7 +57,7 @@ class FileExporter(BaseExporter):
         # Check if we are need to update date
         if not self._is_date_today():
             await self.close()
-            self.date = datetime.now(UTC).date() # Update date
+            self.date = datetime.now(timezone.utc).date() # Update date
             self.rotation = 1 # Reset rotation to 1
             file_uri = Path(self._generate_uri()) # Regenerate file uri
             self.file_uri = file_uri
@@ -90,7 +93,7 @@ class FileExporter(BaseExporter):
                     event.id
                 )
             else:
-                lines.append(f"{datetime.now(UTC)}: {event.model_dump_json()}\n")
+                lines.append(f"{datetime.now(timezone.utc)}: {event.model_dump_json()}\n")
 
         bytes_lines = len(bytes("".join(lines).encode()))
 
