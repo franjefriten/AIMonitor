@@ -8,6 +8,7 @@ from bootstrap import initialize_monitor, shutdown_monitor
 from configs.config import AIMonitorSettings, get_settings
 from core.registry import registry
 from telemetry.api import telemetry_producer
+from exporters.base import BaseExporter
 
 
 @pytest.fixture(autouse=True)
@@ -18,7 +19,7 @@ def clear_aimonitor_env(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_initialize_monitor_uses_valid_runtime_fields(tmp_path):
+async def test_initialize_monitor_uses_valid_runtime_fields(tmp_path, monkeypatch):
     config_path = tmp_path / "aimonitor.yaml"
     config_path.write_text(
         """
@@ -54,6 +55,23 @@ exporters:
     assert settings.otel_mcp_exporter_enabled is True
     assert settings.otel_mcp_service_name == "aimonitor-test"
 
+    class PrometheusStub(BaseExporter):
+        def __init__(self, **kwargs):
+            pass
+
+        def export_batch(self, event_batch):
+            return super().export_batch(event_batch)
+
+        async def healthcheck(self):
+            return True
+
+        async def describe(self):
+            return {"status": "healthy"}
+
+        async def recover(self):
+            return True
+
+    monkeypatch.setattr("bootstrap.PrometheusExporter", PrometheusStub)
     initialized = await initialize_monitor(config_path)
     assert initialized.prometheus_enabled is True
     assert initialized.file_enabled is True

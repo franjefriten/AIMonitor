@@ -1,9 +1,7 @@
 try:
     from confluent_kafka.aio import AIOProducer
-except ImportError as e:
-    raise ImportError(
-        "confluent_kafka is required for KafkaMetricsExporters. Install it with pip install .[kafka] uv sync --extra kafka"
-    )
+except ImportError:
+    AIOProducer = None
    
 from exporters.base import BaseExporter, with_retry
 from core.event import MCPEvent, BaseSignal, SignalType
@@ -51,6 +49,11 @@ class KafkaExporter(BaseExporter):
             buffer_timeout: float = 1.0,
         ):
         super().__init__()
+        if AIOProducer is None:
+            raise ImportError(
+                "confluent_kafka is required for KafkaExporter. "
+                "Install it with pip install .[kafka] or uv sync --extra kafka"
+            )
         self.kafka_configs = kafka_configs
         #self.topics = topics
         try:
