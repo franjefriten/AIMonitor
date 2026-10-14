@@ -7,17 +7,16 @@ from configs.config import get_settings
 
 settings = get_settings()
 
+_LOGGING_CONFIG_BY_ENV = {
+    "ENV": "./logging.dev.yaml",
+    "STG": "/logging.stg.yaml",
+    "PRO": "/logging.pro.yaml",
+}
+
+
 def setup_logging(default_path: str = "./logging.dev.yaml", default_level = logging.INFO):
     env_code = settings.app.env_code
-    match env_code:
-        case "ENV":
-            default_path = "./logging.dev.yaml"
-        case "STG":
-            default_path = "/logging.stg.yaml"
-        case "PRO":
-            default_path = "/logging.pro.yaml"
-        case _:
-            default_path = "./logging.dev.yaml"
+    default_path = _LOGGING_CONFIG_BY_ENV.get(env_code, "./logging.dev.yaml")
             
     path = Path(default_path)
     if path.exists():

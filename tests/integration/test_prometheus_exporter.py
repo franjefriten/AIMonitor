@@ -9,21 +9,23 @@ from prometheus_client import CollectorRegistry, generate_latest
 
 import core.decorators as decorators_module
 from core.decorators import monitor_tool
-from core.event import MCPEvent
+from core.event import MetricEvent
 from core.registry import ExporterRegistry
 from exporters.prometheus import PrometheusExporter
 
 
-def _build_event(tool_name: str = "some_tool", status: str = "success", delta: float = 0.25) -> MCPEvent:
-    return MCPEvent(
-        tool_name=tool_name,
-        args={"arg": "value"},
+def _build_metric_event(
+    tool_name: str = "some_tool",
+    status: str = "success",
+    delta: float = 0.25,
+) -> MetricEvent:
+    return MetricEvent(
+        name="tool_execution_duration_seconds",
+        value=delta,
+        metric_type="histogram",
+        labels={"tool_name": tool_name, "status": status},
         timestamp=datetime.now(UTC),
-        delta=delta,
-        status=status,
-        error="",
         metadata={},
-        result={},
     )
 
 
@@ -39,7 +41,7 @@ async def test_prometheus_exporter_records_metrics_for_batch():
     registry = CollectorRegistry(auto_describe=True)
     exporter = PrometheusExporter(address="http://127.0.0.1:9000", registry=registry)
 
-    event = _build_event()
+    event = _build_metric_event()
     await exporter.export_batch([event])
 
     payload = generate_latest(registry).decode("utf-8")
@@ -58,7 +60,7 @@ async def test_prometheus_exporter_exposes_metrics_over_http():
 
     await exporter.connect()
     try:
-        await exporter.export_batch([_build_event()])
+        await exporter.export_batch([_build_metric_event()])
 
         async with httpx.AsyncClient(timeout=2.0) as client:
             response = await client.get(f"http://127.0.0.1:{port}/metrics")
@@ -91,7 +93,7 @@ async def test_prometheus_exporter_integration_with_registry_and_tool():
 
     decorators_module.registry = registry
 
-    @monitor_tool
+    @monitor_tool()
     async def sample_tool(value: str) -> dict[str, Any]:
         return {"value": value}
 

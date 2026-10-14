@@ -1,9 +1,7 @@
 try:
     from confluent_kafka.aio import AIOProducer
-except ImportError as e:
-    raise ImportError(
-        "confluent_kafka is required for KafkaMetricsExporters. Install it with pip install .[kafka] uv sync --extra kafka"
-    )
+except ImportError:
+    AIOProducer = None
    
 from exporters.base import BaseExporter, with_retry
 from core.event import MCPEvent, BaseSignal, SignalType
@@ -18,6 +16,14 @@ from configs.config import get_settings
 from utils.logger import logger
 
 settings = get_settings()
+
+_KAFKA_TOPICS_BY_SIGNAL = {
+    SignalType.EVENT: "aimonitor-events",
+    SignalType.METRIC: "aimonitor-metrics",
+    SignalType.SPAN: "aimonitor-spans",
+    SignalType.LOG: "aimonitor-logs",
+}
+
 
 def _encode_partition_key(tool_name: str) -> bytes:
     """
@@ -43,6 +49,11 @@ class KafkaExporter(BaseExporter):
             buffer_timeout: float = 1.0,
         ):
         super().__init__()
+        if AIOProducer is None:
+            raise ImportError(
+                "confluent_kafka is required for KafkaExporter. "
+                "Install it with pip install .[kafka] or uv sync --extra kafka"
+            )
         self.kafka_configs = kafka_configs
         #self.topics = topics
         try:
@@ -51,7 +62,6 @@ class KafkaExporter(BaseExporter):
                 max_workers=max_workers,
                 batch_size=batch_size,
                 buffer_timeout=buffer_timeout,
-                acks=self.kafka_configs.get("acks", "all")
             )
             logger.info("Kafka producer initialized correctly")
         except Exception:
@@ -80,19 +90,11 @@ class KafkaExporter(BaseExporter):
             event = events[0]
             event_data = json.dumps(event.model_dump_json()).encode("utf-8")
             key = self._encode_partition_key(event.tool_name)
-            match event.signal_type:
-                case SignalType.EVENT:
-                    topic = "aimonitor-events"
-                case SignalType.METRIC:
-                    topic = "aimonitor-metrics"
-                case SignalType.SPAN:
-                    topic = "aimonitor-spans"
-                case SignalType.LOG:
-                    topic = "aimonitor-logs"
-                case _:
-                    logger.warning(f"Unknown signal type: {event.signal_type}, skipping export")
-                    events.pop(0)
-                    continue
+            topic = _KAFKA_TOPICS_BY_SIGNAL.get(event.event_type)
+            if topic is None:
+                logger.warning(f"Unknown signal type: {event.event_type}, skipping export")
+                events.pop(0)
+                continue
 
             try:
                 await self.producer.produce(

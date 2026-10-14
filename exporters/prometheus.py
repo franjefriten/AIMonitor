@@ -8,10 +8,11 @@ from utils.logger import logger
 
 try:
     from prometheus_client import CollectorRegistry, Counter, Histogram, start_http_server
-except ImportError as exc:  # pragma: no cover - import guard
-    raise ImportError(
-        "prometheus_client is required for PrometheusExporter. Install it with pip install .[prometheus] or uv sync --extra prometheus"
-    ) from exc
+except ImportError:  # pragma: no cover - import guard
+    CollectorRegistry = None
+    Counter = None
+    Histogram = None
+    start_http_server = None
 
 
 class PrometheusExporter(BaseExporter):
@@ -19,8 +20,13 @@ class PrometheusExporter(BaseExporter):
 
     SUPPORTED_SIGNALS = {SignalType.METRIC}
 
-    def __init__(self, address: str = "http://0.0.0.0:9000", registry: Optional[CollectorRegistry] = None):
+    def __init__(self, address: str = "http://0.0.0.0:9000", registry: Optional["CollectorRegistry"] = None): # type: ignore
         super().__init__()
+        if CollectorRegistry is None:
+            raise ImportError(
+                "prometheus_client is required for PrometheusExporter. "
+                "Install it with pip install .[prometheus] or uv sync --extra prometheus"
+            )
         self.address = address
         self.registry = registry if registry is not None else CollectorRegistry(auto_describe=True)
         self._server_started = False
@@ -60,9 +66,11 @@ class PrometheusExporter(BaseExporter):
                     event.id
                 )
                 continue
-            status = event.status.value if hasattr(event.status, "value") else str(event.status)
-            self.counter.labels(tool_name=event.tool_name, status=status).inc()
-            self.histogram.labels(tool_name=event.tool_name).observe(event.delta)
+            labels = getattr(event, "labels", {})
+            tool_name = labels.get("tool_name", "unknown")
+            status = labels.get("status", "unknown")
+            self.counter.labels(tool_name=tool_name, status=status).inc()
+            self.histogram.labels(tool_name=tool_name).observe(event.value)
 
     async def close(self) -> None:
         self._server_started = False

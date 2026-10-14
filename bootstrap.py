@@ -65,3 +65,12 @@ async def initialize_monitor(config_path: str | Path | None = None) -> AIMonitor
         registry.register(exporter)
 
     return settings
+
+async def shutdown_monitor() -> None:
+    """Shutdown all registered exporters and the registry."""
+    await registry.shutdown()
+    settings = get_settings()
+    settings.reset()
+
+    from telemetry.api import telemetry_producer
+    telemetry_producer.reset()

@@ -1,11 +1,14 @@
 import os
+import json
 from pathlib import Path
 
 import pytest
 
-from bootstrap import initialize_monitor
-from configs.config import AIMonitorSettings
+from bootstrap import initialize_monitor, shutdown_monitor
+from configs.config import AIMonitorSettings, get_settings
 from core.registry import registry
+from telemetry.api import telemetry_producer
+from exporters.base import BaseExporter
 
 
 @pytest.fixture(autouse=True)
@@ -16,7 +19,7 @@ def clear_aimonitor_env(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_initialize_monitor_uses_valid_runtime_fields(tmp_path):
+async def test_initialize_monitor_uses_valid_runtime_fields(tmp_path, monkeypatch):
     config_path = tmp_path / "aimonitor.yaml"
     config_path.write_text(
         """
@@ -52,11 +55,44 @@ exporters:
     assert settings.otel_mcp_exporter_enabled is True
     assert settings.otel_mcp_service_name == "aimonitor-test"
 
+    class PrometheusStub(BaseExporter):
+        def __init__(self, **kwargs):
+            pass
+
+        def export_batch(self, event_batch):
+            return super().export_batch(event_batch)
+
+        async def healthcheck(self):
+            return True
+
+        async def describe(self):
+            return {"status": "healthy"}
+
+        async def recover(self):
+            return True
+
+    monkeypatch.setattr("bootstrap.PrometheusExporter", PrometheusStub)
     initialized = await initialize_monitor(config_path)
     assert initialized.prometheus_enabled is True
     assert initialized.file_enabled is True
 
     await registry.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_shutdown_monitor_resets_settings_before_telemetry(monkeypatch):
+    settings = get_settings()
+    settings.telemetry.inner_telemetry = True
+    observed_settings = []
+
+    def observe_reset():
+        observed_settings.append(settings.telemetry.inner_telemetry)
+
+    monkeypatch.setattr(telemetry_producer, "reset", observe_reset)
+
+    await shutdown_monitor()
+
+    assert observed_settings == [False]
 
 
 @pytest.mark.asyncio
@@ -78,10 +114,6 @@ exporters:
     settings = AIMonitorSettings()
     await settings.load_from_yaml(config_path)
 
-    assert settings.kafka_enabled is True
-    assert settings.kafka_bootstrap_servers == "localhost:9092"
-    assert settings.kafka_batch_size == 2048
-    assert settings.kafka_max_workers == 12
     assert settings.exporters.kafka.enabled is True
     assert settings.exporters.kafka.bootstrap_servers == "localhost:9092"
     assert settings.exporters.kafka.producer.acks == "all"
@@ -101,6 +133,7 @@ exporters:
     enabled: true
     bootstrap_servers: "localhost:9092"
     security_protocol: "SASL_SSL"
+    group_id: "aimonitor-test-group"
     max_in_flight_requests_per_connection: 3
     buffer_timeout: 2.5
     sasl:
@@ -120,18 +153,10 @@ exporters:
     settings = AIMonitorSettings()
     await settings.load_from_yaml(config_path)
 
-    assert settings.kafka_enabled is True
-    assert settings.kafka_bootstrap_servers == "localhost:9092"
-    assert settings.kafka_security_protocol == "SASL_SSL"
-    assert settings.kafka_max_in_flight_requests_per_connection == 3
-    assert settings.kafka_buffer_timeout == 2.5
-    assert settings.kafka_producer_acks == "all"
-    assert settings.kafka_compression_type == "gzip"
-    assert settings.kafka_producer_linger_ms == 25
-    assert settings.kafka_max_workers == 8
-    assert settings.kafka_batch_size == 1024
-    assert settings.kafka_retry_policy == 7
-
+    assert settings.exporters.kafka.enabled is True
+    assert settings.exporters.kafka.bootstrap_servers == "localhost:9092"
+    assert settings.exporters.kafka.security_protocol == "SASL_SSL"
+    assert settings.exporters.kafka.group_id == "aimonitor-test-group"
     assert settings.exporters.kafka.max_in_flight_requests_per_connection == 3
     assert settings.exporters.kafka.buffer_timeout == 2.5
     assert settings.exporters.kafka.producer.acks == "all"
@@ -153,6 +178,72 @@ exporters:
     assert kafka_conf["sasl.password"] == "demo-pass"
 
     await registry.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_json_loader_reads_kafka_settings(tmp_path):
+    config_path = tmp_path / "kafka_aimonitor.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "exporters": {
+                    "kafka": {
+                        "enabled": True,
+                        "bootstrap_servers": "localhost:9092",
+                        "security_protocol": "SASL_SSL",
+                        "group_id": "aimonitor-json-group",
+                        "auto_offset_reset": "latest",
+                        "retry_policy": 4,
+                        "delivery_timeout_ms": 60000,
+                        "request_timeout_ms": 15000,
+                        "socket_timeout_ms": 12000,
+                        "reconnect_backoff_ms": 500,
+                        "reconnect_backoff_max_ms": 10000,
+                        "max_in_flight_requests_per_connection": 2,
+                        "buffer_timeout": 1.5,
+                        "sasl": {
+                            "mechanism": "PLAIN",
+                            "username": "json-user",
+                            "password": "json-pass",
+                        },
+                        "producer": {
+                            "acks": "all",
+                            "linger_ms": 10,
+                            "compression": "snappy",
+                            "max_workers": 4,
+                            "batch_size": 512,
+                        },
+                    }
+                }
+            }
+        )
+    )
+
+    settings = AIMonitorSettings()
+    await settings.load_from_json(config_path)
+
+    assert settings.exporters.kafka.enabled is True
+    assert settings.exporters.kafka.bootstrap_servers == "localhost:9092"
+    assert settings.exporters.kafka.security_protocol == "SASL_SSL"
+    assert settings.exporters.kafka.sasl_mechanism == "PLAIN"
+    assert settings.exporters.kafka.sasl_username == "json-user"
+    assert settings.exporters.kafka.sasl_password == "json-pass"
+    assert settings.exporters.kafka.group_id == "aimonitor-json-group"
+    assert settings.exporters.kafka.auto_offset_reset == "latest"
+    assert settings.exporters.kafka.retry_policy == 4
+    assert settings.exporters.kafka.delivery_timeout_ms == 60000
+    assert settings.exporters.kafka.request_timeout_ms == 15000
+    assert settings.exporters.kafka.socket_timeout_ms == 12000
+    assert settings.exporters.kafka.reconnect_backoff_ms == 500
+    assert settings.exporters.kafka.reconnect_backoff_max_ms == 10000
+    assert settings.exporters.kafka.max_in_flight_requests_per_connection == 2
+    assert settings.exporters.kafka.buffer_timeout == 1.5
+    assert settings.exporters.kafka.producer.acks == "all"
+    assert settings.exporters.kafka.producer.linger_ms == 10
+    assert settings.exporters.kafka.producer.compression == "snappy"
+    assert settings.exporters.kafka.producer.max_workers == 4
+    assert settings.exporters.kafka.producer.batch_size == 512
+    assert settings.exporters.kafka.producer.retries == 4
 
 
 @pytest.mark.asyncio
@@ -236,11 +327,6 @@ exporters:
     assert settings.exporters.kafka.bootstrap_servers == "localhost:9092"
     assert settings.exporters.kafka.producer.max_workers == 7
     assert settings.exporters.kafka.producer.batch_size == 256
-
-    assert settings.kafka_enabled is True
-    assert settings.kafka_bootstrap_servers == "localhost:9092"
-    assert settings.kafka_max_workers == 7
-    assert settings.kafka_batch_size == 256
 
     await registry.shutdown()
 
