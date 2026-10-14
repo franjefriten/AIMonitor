@@ -4,11 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from bootstrap import initialize_monitor, shutdown_monitor
-from configs.config import AIMonitorSettings, get_settings
-from core.registry import registry
-from telemetry.api import telemetry_producer
-from exporters.base import BaseExporter
+from aimonitor.bootstrap import initialize_monitor, shutdown_monitor
+from aimonitor.configs.config import AIMonitorSettings, get_settings
+from aimonitor.core.registry import registry
+from aimonitor.telemetry.api import telemetry_producer
+from aimonitor.exporters.base import BaseExporter
 
 
 @pytest.fixture(autouse=True)

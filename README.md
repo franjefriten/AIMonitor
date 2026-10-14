@@ -22,13 +22,13 @@ AIMonitor tracks tool execution, exports monitoring events, and supports **OpenT
 ### Install
 
 ```bash
-pip install aimonitor
+pip install ai-monitor-sdk
 ```
 
 This will install the most basic implementation of AIMonitor, but most exporters will not work with it, as it depends on their own sdk to use them. Run the following command to install their optional dependencies depending on which exporters you want to make use of.
 
 ```bash
-pip install "aimonitor[opentelemetry,sqlite,prometheus,kafka]"
+pip install "ai-monitor-sdk[opentelemetry,sqlite,prometheus,kafka]"
 ```
 
 ### Exporters
@@ -90,7 +90,7 @@ exporters:
 * Inside the lifespan of your desired server, execute the `initialize_monitor` function
 
 ```Python
-from ai_monitor.bootstrap import initialize_monitor, shutdown_monitor
+from aimonitor.bootstrap import initialize_monitor, shutdown_monitor
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
@@ -115,7 +115,7 @@ AIMonitor is **fully async** with options for syncronicity if necessary. The SDK
 AIMonitor allows you to monitor tools that are executed by an LLM or even tools executed through the MCP protocol, on an MCP server. The most basic example is this one
 
 ```python
-from core.decorators import monitor_tool
+from aimonitor.core.decorators import monitor_tool
 
 @monitor_tool
 async def fetch_data(user_id: str):
@@ -125,9 +125,9 @@ async def fetch_data(user_id: str):
 Assuming we are using FastMCP to create an mcp server, we can set up
 
 ```Python
-from core.decorators import monitor_tool
+from aimonitor.core.decorators import monitor_tool
 from fastmcp import FastMCP
-from ai_monitor.bootstrap import initialize_monitor, shutdown_monitor
+from aimonitor.bootstrap import initialize_monitor, shutdown_monitor
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
@@ -151,8 +151,8 @@ Refer to the documentation on [usage](docs/usage.md) for further explanation on 
 ### Export events
 
 ```python
-from exporters.file import FileExporter
-from core.registry import registry
+from aimonitor.exporters.file import FileExporter
+from aimonitor.core.registry import registry
 
 exporter = FileExporter(base_uri="./logs")
 await exporter.connect()

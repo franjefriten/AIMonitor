@@ -3,9 +3,9 @@ from pathlib import Path
 from datetime import datetime, UTC
 import random
 
-from exporters.file import FileExporter 
-from exporters.sqlite import SQLiteExporter
-from core.event import MCPEvent 
+from aimonitor.exporters.file import FileExporter 
+from aimonitor.exporters.sqlite import SQLiteExporter
+from aimonitor.core.event import MCPEvent 
 from tests.conftest import _generate_mcp_event, _generate_span_event
 
 ## FileExporter

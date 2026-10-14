@@ -39,7 +39,10 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = ["core", "exporters", "utils"]
+package-dir = {"": "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.uv]
 # Configuración específica para uv si quieres optimizar bloqueos

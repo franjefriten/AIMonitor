@@ -4,8 +4,8 @@ from datetime import datetime, UTC
 from typing import Any, Dict, Optional
 from uuid import uuid4
 
-from core.event import SpanEvent
-from core.event import Status
+from aimonitor.core.event import SpanEvent
+from aimonitor.core.event import Status
 
 class Trace:
     """

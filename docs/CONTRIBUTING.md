@@ -67,7 +67,7 @@ Example:
 async def export(self, event: MCPEvent) -> None:
     """
     Export a single event.
-    
+  
     Args:
         event: The MCPEvent to export
     """
@@ -94,15 +94,15 @@ To add a new exporter:
 Example:
 
 ```python
-from exporters.base import BaseExporter
-from core.event import MCPEvent
+from aimonitor.exporters.base import BaseExporter
+from aimonitor.core.event import MCPEvent
 from typing import List
 
 class MyExporter(BaseExporter):
     async def export(self, event: MCPEvent) -> None:
         # Your implementation
         pass
-    
+  
     async def export_batch(self, event_batch: List[MCPEvent]) -> None:
         # Efficient batch handling
         pass
@@ -136,24 +136,23 @@ Use conventional commits:
    ```bash
    git push origin feature/my-feature
    ```
-
 2. **Open a PR** against `main`
-
 3. **Describe your changes**
+
    - What problem does it solve?
    - How does it work?
    - Any breaking changes?
-
 4. **Tests must pass**
+
    - CI runs automatically on PRs
    - All tests must pass
    - Coverage should not decrease
-
 5. **Request review**
+
    - At least one maintainer approval required
    - Address review feedback
-
 6. **Merge**
+
    - Squash and merge to keep history clean
    - Maintainer will handle merging
 
@@ -178,10 +177,10 @@ Use Google-style docstrings:
 def get_settings(self) -> AIMonitorSettings:
     """
     Retrieve the current AIMonitor settings.
-    
+  
     Returns:
         AIMonitorSettings instance with all configuration values
-        
+      
     Raises:
         ValueError: If configuration is invalid
     """
@@ -205,10 +204,10 @@ Test individual components in isolation:
 async def test_file_exporter_creates_file():
     exporter = FileExporter(base_uri=tmp_path)
     await exporter.connect()
-    
+  
     event = MCPEvent(...)
     await exporter.export(event)
-    
+  
     files = list(tmp_path.glob("*.jsonl"))
     assert len(files) == 1
 ```

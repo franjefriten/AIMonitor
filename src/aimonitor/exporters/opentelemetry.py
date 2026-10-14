@@ -2,10 +2,10 @@ import os
 import json
 from typing import Any, List, Optional
 
-from configs.config import get_settings
-from core.event import MCPEvent
-from exporters.base import BaseExporter
-from utils.logger import logger
+from aimonitor.configs.config import get_settings
+from aimonitor.core.event import MCPEvent
+from aimonitor.exporters.base import BaseExporter
+from aimonitor.utils.logger import logger
 
 
 class OpenTelemetryExporter(BaseExporter):

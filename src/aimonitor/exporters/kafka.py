@@ -3,8 +3,8 @@ try:
 except ImportError:
     AIOProducer = None
    
-from exporters.base import BaseExporter, with_retry
-from core.event import MCPEvent, BaseSignal, SignalType
+from aimonitor.exporters.base import BaseExporter, with_retry
+from aimonitor.core.event import MCPEvent, BaseSignal, SignalType
 
 import socket
 import hashlib
@@ -12,8 +12,8 @@ import json
 from typing import List, Optional, Literal
 import string
 
-from configs.config import get_settings
-from utils.logger import logger
+from aimonitor.configs.config import get_settings
+from aimonitor.utils.logger import logger
 
 settings = get_settings()
 

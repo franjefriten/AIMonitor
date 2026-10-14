@@ -8,12 +8,12 @@ import httpx
 import pytest
 from confluent_kafka import aio
 
-import core.decorators as decorators_module
-from core.decorators import monitor_tool
-from core.event import MCPEvent
-from core.registry import ExporterRegistry
-from exporters.kafka import KafkaExporter
-from configs.config import get_settings
+import aimonitor.core.decorators as decorators_module
+from aimonitor.core.decorators import monitor_tool
+from aimonitor.core.event import MCPEvent
+from aimonitor.core.registry import ExporterRegistry
+from aimonitor.exporters.kafka import KafkaExporter
+from aimonitor.configs.config import get_settings
 
 settings = get_settings()
 

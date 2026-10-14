@@ -1,11 +1,11 @@
 import random
 from datetime import datetime, UTC
-from core.event import MCPEvent , SpanEvent
+from aimonitor.core.event import MCPEvent , SpanEvent
 import pytest_asyncio
 
-from configs.config import get_settings
-from core.registry import registry
-from telemetry.api import telemetry_producer
+from aimonitor.configs.config import get_settings
+from aimonitor.core.registry import registry
+from aimonitor.telemetry.api import telemetry_producer
 
 
 @pytest_asyncio.fixture(autouse=True)

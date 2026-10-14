@@ -4,12 +4,13 @@ import inspect
 from datetime import datetime, UTC
 from typing import Callable, Literal, Any, Dict, List
 from uuid import uuid4
-from core.observability import monitor
-from utils.logger import logger
-from utils.security import redact_sensitive_data
-from configs.config import get_settings
-from utils.context import _trace_context
-from core.trace import Trace, SpanEvent
+
+from aimonitor.core.observability import monitor
+from aimonitor.utils.logger import logger
+from aimonitor.utils.security import redact_sensitive_data
+from aimonitor.configs.config import get_settings
+from aimonitor.utils.context import _trace_context
+from aimonitor.core.trace import Trace, SpanEvent
 
 settings = get_settings()
 

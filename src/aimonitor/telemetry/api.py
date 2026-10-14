@@ -4,9 +4,9 @@ import time
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Optional, Dict, Any
-from utils.logger import logger
-from configs.config import get_settings
-from core.event import HealthCheckSnapshot as HealthCheckEvent
+from aimonitor.utils.logger import logger
+from aimonitor.configs.config import get_settings
+from aimonitor.core.event import HealthCheckSnapshot as HealthCheckEvent
 
 
 class TelemetryProducer:

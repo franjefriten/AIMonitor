@@ -1,14 +1,13 @@
 from pathlib import Path
 
-from configs.config import AIMonitorSettings, get_settings
-from core.registry import registry
-from exporters.file import FileExporter
-from exporters.kafka import KafkaExporter
-from exporters.opentelemetry import OpenTelemetryExporter
-from exporters.prometheus import PrometheusExporter
-from exporters.redis import RedisExporter
-from exporters.sqlite import SQLiteExporter
-from utils.logger import setup_logging
+from aimonitor.configs.config import AIMonitorSettings, get_settings
+from aimonitor.core.registry import registry
+from aimonitor.exporters.file import FileExporter
+from aimonitor.exporters.kafka import KafkaExporter
+from aimonitor.exporters.opentelemetry import OpenTelemetryExporter
+from aimonitor.exporters.prometheus import PrometheusExporter
+from aimonitor.exporters.sqlite import SQLiteExporter
+from aimonitor.utils.logger import setup_logging
 
 
 async def initialize_monitor(config_path: str | Path | None = None) -> AIMonitorSettings:
@@ -31,9 +30,6 @@ async def initialize_monitor(config_path: str | Path | None = None) -> AIMonitor
     telemetry_producer.reset()
 
     exporters = []
-
-    if settings.exporters.redis.enabled and settings.exporters.redis.url is not None:
-        exporters.append(RedisExporter(settings.exporters.redis.url))
 
     if settings.exporters.sqlite.enabled and settings.exporters.sqlite.uri is not None:
         exporters.append(SQLiteExporter(settings.exporters.sqlite.uri))

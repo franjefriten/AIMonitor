@@ -2,9 +2,10 @@
 Exporter module for console, used mostly for debugging purposes
 """
 
-from exporters.base import BaseExporter
-from core.event import BaseSignal, SignalType
-from utils.logger import logger
+from aimonitor.exporters.base import BaseExporter
+from aimonitor.core.event import BaseSignal, SignalType
+from aimonitor.utils.logger import logger
+
 from typing import List
 import io
 import sys

@@ -7,11 +7,11 @@ import httpx
 import pytest
 from prometheus_client import CollectorRegistry, generate_latest
 
-import core.decorators as decorators_module
-from core.decorators import monitor_tool
-from core.event import MetricEvent
-from core.registry import ExporterRegistry
-from exporters.prometheus import PrometheusExporter
+import aimonitor.core.decorators as decorators_module
+from aimonitor.core.decorators import monitor_tool
+from aimonitor.core.event import MetricEvent
+from aimonitor.core.registry import ExporterRegistry
+from aimonitor.exporters.prometheus import PrometheusExporter
 
 
 def _build_metric_event(

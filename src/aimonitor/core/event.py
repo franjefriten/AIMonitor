@@ -4,7 +4,7 @@ from enum import Enum
 from typing import Any, Dict
 from uuid import uuid4
 import socket
-from configs.config import get_settings
+from aimonitor.configs.config import get_settings
 from datetime import datetime
 
 settings = get_settings()

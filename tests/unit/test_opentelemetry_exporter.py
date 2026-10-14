@@ -2,8 +2,8 @@ import types
 from datetime import datetime, UTC
 from unittest.mock import patch
 
-from core.event import MCPEvent, Status
-from exporters.opentelemetry import OpenTelemetryExporter
+from aimonitor.core.event import MCPEvent, Status
+from aimonitor.exporters.opentelemetry import OpenTelemetryExporter
 
 
 class _DummySpan:
