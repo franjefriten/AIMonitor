@@ -60,9 +60,11 @@ class PrometheusExporter(BaseExporter):
                     event.id
                 )
                 continue
-            status = event.status.value if hasattr(event.status, "value") else str(event.status)
-            self.counter.labels(tool_name=event.tool_name, status=status).inc()
-            self.histogram.labels(tool_name=event.tool_name).observe(event.delta)
+            labels = getattr(event, "labels", {})
+            tool_name = labels.get("tool_name", "unknown")
+            status = labels.get("status", "unknown")
+            self.counter.labels(tool_name=tool_name, status=status).inc()
+            self.histogram.labels(tool_name=tool_name).observe(event.value)
 
     async def close(self) -> None:
         self._server_started = False
