@@ -4,9 +4,10 @@ from pathlib import Path
 
 import pytest
 
-from bootstrap import initialize_monitor
-from configs.config import AIMonitorSettings
+from bootstrap import initialize_monitor, shutdown_monitor
+from configs.config import AIMonitorSettings, get_settings
 from core.registry import registry
+from telemetry.api import telemetry_producer
 
 
 @pytest.fixture(autouse=True)
@@ -58,6 +59,22 @@ exporters:
     assert initialized.file_enabled is True
 
     await registry.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_shutdown_monitor_resets_settings_before_telemetry(monkeypatch):
+    settings = get_settings()
+    settings.telemetry.inner_telemetry = True
+    observed_settings = []
+
+    def observe_reset():
+        observed_settings.append(settings.telemetry.inner_telemetry)
+
+    monkeypatch.setattr(telemetry_producer, "reset", observe_reset)
+
+    await shutdown_monitor()
+
+    assert observed_settings == [False]
 
 
 @pytest.mark.asyncio
