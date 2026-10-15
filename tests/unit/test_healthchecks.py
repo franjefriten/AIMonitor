@@ -212,6 +212,43 @@ async def test_healthcheck_failure_populates_snapshot(monkeypatch):
     assert snapshot[key].get("consecutive_failures") == 1
     assert snapshot[key].get("consecutive_successes") == 0
 
+
+@pytest.mark.asyncio
+async def test_inner_telemetry_disabled_keeps_health_snapshot_without_sending_to_otel(monkeypatch):
+    captured = []
+
+    class CustomExporter(BaseExporter):
+        async def export_batch(self, event_batch):
+            pass
+
+        async def healthcheck(self):
+            return True
+
+        async def describe(self):
+            return {"status": "healthy"}
+
+        async def recover(self):
+            return True
+
+    telemetry_producer.configure(enabled=False)
+    monkeypatch.setattr(
+        telemetry_producer,
+        "record_exporter_healthcheck",
+        lambda *args, **kwargs: captured.append((args, kwargs)),
+    )
+
+    exporter_registry = ExporterRegistry()
+    exporter = CustomExporter()
+    exporter_registry.register(exporter)
+    snapshot = await exporter_registry._run_healthcheck(exporter)
+
+    key = exporter_registry._snapshot_key(exporter)
+    assert snapshot.status == HealthStatus.HEALTHY
+    assert exporter_registry._health.exporters[key].status == HealthStatus.HEALTHY
+    assert exporter_registry._health.summary["healthy_count"] == 1
+    assert captured == []
+
+
 @pytest.mark.asyncio
 async def test_consecutive_success_and_fail_healthchecks(monkeypatch):
     captured = []

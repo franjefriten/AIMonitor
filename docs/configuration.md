@@ -58,6 +58,8 @@ tracking:
   track_logs: true
 
 telemetry:
+  # Only controls sending exporter healthcheck events to OpenTelemetry.
+  # The registry health snapshot remains active when this is false.
   inner_telemetry: false
   healthcheck_enabled: true
   healthcheck_interval: 60

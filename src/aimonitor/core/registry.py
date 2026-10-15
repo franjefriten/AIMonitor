@@ -191,6 +191,8 @@ class ExporterRegistry:
         return True
 
     async def _publish_health_transition(self, snapshot: HealthCheckSnapshot) -> None:
+        if not telemetry_producer.enabled:
+            return
         await telemetry_producer.record_exporter_healthcheck(snapshot)
 
     async def _run_healthcheck(self, exporter: BaseExporter) -> HealthCheckSnapshot:
@@ -322,7 +324,8 @@ class ExporterRegistry:
             if post_health_recovery_snapshot is not None:
                 if not healthcheck_completed:
                     self._update_exporter_health(exporter, post_health_recovery_snapshot)
-                await telemetry_producer.record_exporter_healthcheck(post_health_recovery_snapshot)
+                if telemetry_producer.enabled:
+                    await telemetry_producer.record_exporter_healthcheck(post_health_recovery_snapshot)
 
         return status == HealthStatus.HEALTHY
 

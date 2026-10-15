@@ -183,7 +183,10 @@ class TrackingSettings(BaseModel):
 
 
 class TelemetrySettings(BaseModel):
-    inner_telemetry: bool = Field(default=False, description="Whether internal telemetry is enabled")
+    inner_telemetry: bool = Field(
+        default=False,
+        description="Whether exporter healthcheck events are sent to OpenTelemetry",
+    )
     healthcheck_enabled: bool = Field(default=True, description="Whether the background exporter healthcheck loop is enabled")
     healthcheck_interval: int = Field(default=60, ge=1, description="Seconds between exporter health checks")
 
@@ -506,7 +509,7 @@ class AIMonitorSettings(BaseSettings):
     # inner telemetry
     inner_telemetry: bool = Field(
         default=False,
-        description="Option to track telemetry of the module itself, useful for debugging and development",
+        description="Whether exporter healthcheck events are sent to OpenTelemetry",
         validation_alias=AliasChoices(*_INNER_TELEMETRY_ALIASES)
     )
     healthcheck_enabled: bool = Field(
@@ -1214,4 +1217,3 @@ def get_settings() -> AIMonitorSettings:
 
 
 settings = get_settings()
-
