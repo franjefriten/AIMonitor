@@ -3,7 +3,7 @@ Exporters are responsible for taking the data from the database and converting i
 This module provides a base class for all exporters, which can be extended to create custom exporters for different formats.
 """
 from abc import ABC, abstractmethod
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, ParamSpec, TypeVar, cast, overload
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 import httpx
 from pathlib import Path
@@ -75,8 +75,6 @@ class BaseExporter(ABC):
         Should return True if the recovery was successful, False otherwise.
         """
         pass
-    
-
 
 
 class HTTPBaseExporter(BaseExporter):
@@ -105,7 +103,7 @@ class HTTPBaseExporter(BaseExporter):
     
     async def close(self):
         if self.client:
-            self.client.aclose()
+            await self.client.aclose()
             self.client = None
 
     async def export(self, event: BaseSignal) -> None:
@@ -128,11 +126,11 @@ class BaseDatabaseExporter(BaseExporter):
         self.dsn = dsn
 
     @abstractmethod
-    async def _create_table_if_not_exists():
+    async def _create_table_if_not_exists(self):
         pass
 
     @abstractmethod
-    async def _open_connection():
+    async def _open_connection(self):
         pass
 
     async def connect(self):
@@ -140,18 +138,33 @@ class BaseDatabaseExporter(BaseExporter):
         await self._create_table_if_not_exists()
     
     @abstractmethod
-    async def close():
+    async def close(self):
         pass
 
 
-def with_retry(func: Optional[Callable] = None):
-    def decorator(fn: Callable):
-        return retry(
-            stop=stop_after_attempt(settings.retries_policy),
+P = ParamSpec("P")
+R = TypeVar("R")
+
+
+@overload
+def with_retry() -> Callable[[Callable[P, R]], Callable[P, R]]:
+    ...
+
+
+@overload
+def with_retry(func: Callable[P, R]) -> Callable[P, R]:
+    ...
+
+
+def with_retry(func: Optional[Callable[P, R]] = None) -> Callable[..., object]:
+    def decorator(fn: Callable[P, R]) -> Callable[P, R]:
+        retried = retry(
+            stop=stop_after_attempt(settings.retries_policy if settings.retries_policy is not None else 1),
             retry=retry_if_exception_type((ConnectionError, TimeoutError)),
             wait=wait_exponential(),
             reraise=True,
         )(fn)
+        return cast(Callable[P, R], retried)
 
     if func is None:
         return decorator
