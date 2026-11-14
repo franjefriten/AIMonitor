@@ -1,6 +1,6 @@
 import asyncio
 import hashlib
-from typing import Any, List
+from typing import Any, List, Sequence
 
 from aimonitor.configs.config import get_settings
 from aimonitor.core.event import BaseSignal, SignalType
@@ -34,12 +34,15 @@ else:
 
 settings = get_settings()
 
-_KAFKA_TOPICS_BY_SIGNAL = {
-    SignalType.EVENT: "aimonitor-events",
-    SignalType.METRIC: "aimonitor-metrics",
-    SignalType.SPAN: "aimonitor-spans",
-    SignalType.LOG: "aimonitor-logs",
-}
+
+def _build_topic_map(topics: dict[SignalType, str] | None = None) -> dict[SignalType, str]:
+    configured_topics = topics or {}
+    return {
+        SignalType.EVENT: configured_topics.get(SignalType.EVENT, ""),
+        SignalType.METRIC: configured_topics.get(SignalType.METRIC, ""),
+        SignalType.SPAN: configured_topics.get(SignalType.SPAN, ""),
+        SignalType.LOG: configured_topics.get(SignalType.LOG, ""),
+    }
 
 
 class KafkaHealthProbe:
@@ -82,13 +85,16 @@ def _encode_partition_key(tool_name: str) -> bytes:
     return digest[:16].encode("utf-8")
 
 
-def _topic_for_signal(event: BaseSignal, supported_signals: set[SignalType]) -> str:
+def _topic_for_signal(event: BaseSignal, supported_signals: set[SignalType], topics_by_signal: dict[SignalType, str]) -> str:
     try:
-        topic = _KAFKA_TOPICS_BY_SIGNAL[event.event_type]
+        topic = topics_by_signal.get(event.event_type, "")
     except KeyError as exc:
         raise SignalTypeNotFound(str(event.event_type)) from exc
     if event.event_type not in supported_signals:
         raise UnsupportedSignalError(str(event.event_type), "KafkaExporter")
+    if not topic:
+        logger.warning("No Kafka topic configured for signal type %s", event.event_type)
+        return ""
     return topic
 
 
@@ -99,6 +105,7 @@ class KafkaExporter(BaseExporter):
         max_workers: int = 5,
         batch_size: int = 10,
         buffer_timeout: float = 1.0,
+        topics: dict[SignalType, str] | None = None,
     ):
         super().__init__()
         if AIOProducer is None:
@@ -109,6 +116,7 @@ class KafkaExporter(BaseExporter):
         self.max_workers = max_workers
         self.batch_size = batch_size
         self.buffer_timeout = buffer_timeout
+        self._topics_by_signal = _build_topic_map(topics)
         self.producer = producer_class(
             producer_conf=self.kafka_configs,
             max_workers=max_workers,
@@ -124,16 +132,18 @@ class KafkaExporter(BaseExporter):
         return _encode_partition_key(tool_name)
 
     @with_retry
-    async def export_batch(self, event_batch: List[BaseSignal]) -> None:
+    async def export_batch(self, event_batch: Sequence[BaseSignal]) -> None:
         if self.producer is None or self._closed:
             raise ExporterNotReadyError("Kafka producer is not initialized or is closed")
 
         futures = []
         for event in event_batch:
-            topic = _topic_for_signal(event, self.SUPPORTED_SIGNALS)
+            topic = _topic_for_signal(event, self.SUPPORTED_SIGNALS, self._topics_by_signal)
+            if not topic:
+                continue
             future = await self.producer.produce(
                 topic=topic,
-                key=self._encode_partition_key(event.id),
+                key=self._encode_partition_key(event.event_type.value),
                 value=event.model_dump_json().encode("utf-8"),
             )
             futures.append((event.id, future))
@@ -151,7 +161,7 @@ class KafkaExporter(BaseExporter):
         producer = self.producer
         if producer is None or self._closed:
             logger.info("Kafka producer is already closed")
-            return
+            return None
 
         try:
             await producer.close()

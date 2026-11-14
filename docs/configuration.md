@@ -89,6 +89,11 @@ exporters:
       compression: "none"
       batch_size: 2048
       max_workers: 12
+    topics:
+      event: "my-app-events"
+      metric: "my-app-metrics"
+      span: "my-app-span"
+      log: "my-app-log"
 ```
 
 Then load it with:

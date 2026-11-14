@@ -122,6 +122,7 @@ registry.register(exporter)
 ### KafkaExporter
 
 ```python
+from aimonitor.core.event import SignalType
 from aimonitor.exporters.kafka import KafkaExporter
 
 exporter = KafkaExporter(
@@ -132,12 +133,18 @@ exporter = KafkaExporter(
     max_workers=12,
     batch_size=2048,
     buffer_timeout=1.0,
+    topics={
+        SignalType.EVENT: "aimonitor.events",
+        SignalType.METRIC: "aimonitor.metrics",
+        SignalType.SPAN: "aimonitor.spans",
+        SignalType.LOG: "aimonitor.logs",
+    },
 )
 await exporter.connect()
 registry.register(exporter)
 ```
 
-The preferred configuration path is via `AIMonitorSettings` and `initialize_monitor` so the values are loaded from the model instead of being hand-built at runtime.
+The preferred configuration path is via `AIMonitorSettings` and `initialize_monitor` so the values are loaded from the model instead of being hand-built at runtime. Kafka topics are explicit configuration and are no longer hardcoded by the library.
 
 ## YAML example
 
@@ -160,6 +167,11 @@ exporters:
   kafka:
     enabled: true
     bootstrap_servers: "localhost:9092"
+    topics:
+      event: "aimonitor.events"
+      metric: "aimonitor.metrics"
+      span: "aimonitor.spans"
+      log: "aimonitor.logs"
     producer:
       acks: "all"
       retries: 3

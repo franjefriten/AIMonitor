@@ -1,7 +1,7 @@
 from enum import Enum
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, Self
 from urllib import parse
 import socket
 
@@ -167,12 +167,12 @@ class _VALID_ENV_CODE(str, Enum):
 
 
 class AppSettings(BaseModel):
-    env_code: _VALID_ENV_CODE = Field(default=_VALID_ENV_CODE.ENV, description="Environment code used for configs such as logs")
+    env_code: _VALID_ENV_CODE | None = Field(default=_VALID_ENV_CODE.ENV, description="Environment code used for configs such as logs")
     logger_level: str = Field(default="INFO", description="Logger level used for the module inner console logs")
 
     @property
-    def env(self) -> str:
-        return self.env_code.value
+    def env(self) -> str | None:
+        return self.env_code.value if self.env_code is not None else None
 
 
 class TrackingSettings(BaseModel):
@@ -199,6 +199,11 @@ class KafkaProducerSettings(BaseModel):
     batch_size: Optional[int] = Field(default=None)
     retries: Optional[int] = Field(default=None)
 
+class KafkaTopicsSettings(BaseModel):
+    event: Optional[str] = Field(default=None)
+    metric: Optional[str] = Field(default=None)
+    log: Optional[str] = Field(default=None)
+    span: Optional[str] = Field(default=None)
 
 class KafkaExporterSettings(BaseModel):
     enabled: bool = Field(default=False)
@@ -217,6 +222,7 @@ class KafkaExporterSettings(BaseModel):
     reconnect_backoff_max_ms: Optional[int] = Field(default=None)
     max_in_flight_requests_per_connection: Optional[int] = Field(default=None)
     buffer_timeout: Optional[float] = Field(default=None)
+    topics: KafkaTopicsSettings = Field(default_factory=KafkaTopicsSettings)
     producer: KafkaProducerSettings = Field(default_factory=KafkaProducerSettings)
 
 
@@ -441,6 +447,26 @@ class AIMonitorSettings(BaseSettings):
         ge=1,
         validation_alias=AliasChoices(*_KAFKA_BATCH_SIZE_ALIASES),
     )
+    kafka_topic_event: Optional[str] = Field(
+        default=None,
+        description="Kafka topic to which events will be published",
+        validation_alias="event"
+    )
+    kafka_topic_log: Optional[str] = Field(
+        default=None,
+        description="Kafka topic to which logs will be published",
+        validation_alias="log",
+    )
+    kafka_topic_metric: Optional[str] = Field(
+        default=None,
+        description="Kafka topic to which metrics will be published",
+        validation_alias="metric",
+    )
+    kafka_topic_span: Optional[str] = Field(
+        default=None,
+        description="Kafka topic to which spans will be published",
+        validation_alias="span",
+    )
     # sqlite
     sqlite_enabled: bool = Field(
         default=False,
@@ -550,6 +576,9 @@ class AIMonitorSettings(BaseSettings):
         fresh_settings = type(self)()
         self.__dict__.clear()
         self.__dict__.update(fresh_settings.__dict__)
+        if hasattr(self, "__pydantic_fields_set__"):
+            self.__pydantic_fields_set__.clear()
+        self.model_fields_set.clear()
 
     # OpenTelemetry exporter for monitored MCP events (separate from SDK internal telemetry)
     otel_enabled: bool = Field(
@@ -579,8 +608,9 @@ class AIMonitorSettings(BaseSettings):
             config_logger.error("YAML config file was not found")
             raise FileNotFoundError("YAML config file was not found")
 
-        async with aiofiles.open(yaml_file_path, mode="r", encoding="utf-8") as file:
-            data = yaml.safe_load(await file.read()) or {}
+        self.model_fields_set.clear()
+        async with aiofiles.open(yaml_file_path, mode="r", encoding="utf-8") as config_file:
+            data = yaml.safe_load(await config_file.read()) or {}
 
         if data:
             # app
@@ -628,16 +658,7 @@ class AIMonitorSettings(BaseSettings):
 
             # exporters
             exporters_data: dict = data.get("exporters", {})
-            # redis
-            redis: dict = exporters_data.get("redis", {})
-            redis_enabled = redis.get("enabled", False)
-            if redis_enabled:
-                flattened_data["redis_enabled"] = redis_enabled
-                redis_url = redis.get("url")
-                if redis_url is not None:
-                    flattened_data["redis_url"] = redis_url
-            else:
-                flattened_data["redis_enabled"] = False
+
             # mongodb
             mongodb: dict = exporters_data.get("mongodb", {})
             mongodb_enabled: bool = mongodb.get("enabled", False)
@@ -668,6 +689,7 @@ class AIMonitorSettings(BaseSettings):
                     flattened_data["prometheus_url"] = prometheus_url
             else:
                 flattened_data["prometheus_enabled"] = False
+
             # kafka
             kafka: dict = exporters_data.get("kafka", {})
             if kafka.get("enabled"):
@@ -745,8 +767,24 @@ class AIMonitorSettings(BaseSettings):
                 kafka_buffer_timeout = kafka.get("buffer_timeout")
                 if kafka_buffer_timeout is not None and isinstance(kafka_buffer_timeout, (int, float)):
                     flattened_data["kafka_buffer_timeout"] = kafka_buffer_timeout
+
+                kafka_topics = kafka.get("topics", {})
+                if isinstance(kafka_topics, dict):
+                    kafka_topic_event = kafka_topics.get("event")
+                    kafka_topic_log = kafka_topics.get("log")
+                    kafka_topic_metric = kafka_topics.get("metric")
+                    kafka_topic_span = kafka_topics.get("span")
+                    if kafka_topic_event is not None:
+                        flattened_data["kafka_topic_event"] = kafka_topic_event
+                    if kafka_topic_log is not None:
+                        flattened_data["kafka_topic_log"] = kafka_topic_log
+                    if kafka_topic_metric is not None:
+                        flattened_data["kafka_topic_metric"] = kafka_topic_metric
+                    if kafka_topic_span is not None:
+                        flattened_data["kafka_topic_span"] = kafka_topic_span
             else:
                 flattened_data["kafka_enabled"] = False
+
             # open telemetry
             otel: dict = exporters_data.get("otel", {})
             otel_enabled: bool = otel.get("enabled", False)
@@ -759,14 +797,14 @@ class AIMonitorSettings(BaseSettings):
                 if otel_span_prefix is not None:
                     flattened_data["otel_mcp_span_prefix"] = otel_span_prefix
             # file
-            file: dict = exporters_data.get("file", {})
-            file_enabled: bool = file.get("enabled", False)
+            file_cfg: dict = exporters_data.get("file", {})
+            file_enabled: bool = file_cfg.get("enabled", False)
             if file_enabled:
                 flattened_data["file_enabled"] = True
-                file_path = next(iter(file.get(label) for label in _FILE_EXPORTER_LOGS_ALIASES if label in file), None)
+                file_path = next(iter(file_cfg.get(label) for label in _FILE_EXPORTER_LOGS_ALIASES if label in file_cfg), None)
                 if file_path is not None:
                     flattened_data["file_exporter_logs"] = Path(file_path)
-                max_mb_per_file = next(iter(file.get(label) for label in _MAX_MB_PER_FILE_ALIASES if label in file), None)
+                max_mb_per_file = next(iter(file_cfg.get(label) for label in _MAX_MB_PER_FILE_ALIASES if label in file_cfg), None)
                 if max_mb_per_file is not None:
                     flattened_data["max_mb_per_file"] = max_mb_per_file
             # sqlite
@@ -789,8 +827,9 @@ class AIMonitorSettings(BaseSettings):
             config_logger.error("JSON config file was not found")
             raise FileNotFoundError("JSON config file was not found")
 
-        async with aiofiles.open(json_file_path, mode="r", encoding="utf-8") as file:
-            data = json.loads(await file.read())
+        self.model_fields_set.clear()
+        async with aiofiles.open(json_file_path, mode="r", encoding="utf-8") as json_file:
+            data = json.loads(await json_file.read())
 
         if data:
             # app
@@ -838,16 +877,7 @@ class AIMonitorSettings(BaseSettings):
 
             # exporters
             exporters_data: dict = data.get("exporters", {})
-            # redis
-            redis: dict = exporters_data.get("redis", {})
-            redis_enabled = redis.get("enabled", False)
-            if redis_enabled:
-                flattened_data["redis_enabled"] = redis_enabled
-                redis_url = redis.get("url")
-                if redis_url is not None:
-                    flattened_data["redis_url"] = redis_url
-            else:
-                flattened_data["redis_enabled"] = False
+
             # mongodb
             mongodb: dict = exporters_data.get("mongodb", {})
             mongodb_enabled: bool = mongodb.get("enabled", False)
@@ -955,6 +985,21 @@ class AIMonitorSettings(BaseSettings):
                 kafka_buffer_timeout = kafka.get("buffer_timeout")
                 if kafka_buffer_timeout is not None and isinstance(kafka_buffer_timeout, (int, float)):
                     flattened_data["kafka_buffer_timeout"] = kafka_buffer_timeout
+
+                kafka_topics = kafka.get("topics", {})
+                if isinstance(kafka_topics, dict):
+                    kafka_topic_event = kafka_topics.get("event")
+                    kafka_topic_log = kafka_topics.get("log")
+                    kafka_topic_metric = kafka_topics.get("metric")
+                    kafka_topic_span = kafka_topics.get("span")
+                    if kafka_topic_event is not None:
+                        flattened_data["kafka_topic_event"] = kafka_topic_event
+                    if kafka_topic_log is not None:
+                        flattened_data["kafka_topic_log"] = kafka_topic_log
+                    if kafka_topic_metric is not None:
+                        flattened_data["kafka_topic_metric"] = kafka_topic_metric
+                    if kafka_topic_span is not None:
+                        flattened_data["kafka_topic_span"] = kafka_topic_span
             else:
                 flattened_data["kafka_enabled"] = False
             # open telemetry
@@ -969,14 +1014,14 @@ class AIMonitorSettings(BaseSettings):
                 if otel_span_prefix is not None:
                     flattened_data["otel_mcp_span_prefix"] = otel_span_prefix
             # file
-            file: dict = exporters_data.get("file", {})
-            file_enabled: bool = file.get("enabled", False)
+            file_cfg: dict = exporters_data.get("file", {})
+            file_enabled: bool = file_cfg.get("enabled", False)
             if file_enabled:
                 flattened_data["file_enabled"] = True
-                file_path = next(iter(file.get(label) for label in _FILE_EXPORTER_LOGS_ALIASES if label in file), None)
+                file_path = next(iter(file_cfg.get(label) for label in _FILE_EXPORTER_LOGS_ALIASES if label in file_cfg), None)
                 if file_path is not None:
                     flattened_data["file_exporter_logs"] = Path(file_path)
-                max_mb_per_file = next(iter(file.get(label) for label in _MAX_MB_PER_FILE_ALIASES if label in file), None)
+                max_mb_per_file = next(iter(file_cfg.get(label) for label in _MAX_MB_PER_FILE_ALIASES if label in file_cfg), None)
                 if max_mb_per_file is not None:
                     flattened_data["max_mb_per_file"] = max_mb_per_file
             # sqlite
@@ -1032,29 +1077,7 @@ class AIMonitorSettings(BaseSettings):
 
         return conf
 
-    def _apply_flattened_file_values(self, flattened_data: dict[str, Any]) -> None:
-        yaml_loaded_fields = set()
-        for field_name, value in flattened_data.items():
-            if field_name not in self.__class__.model_fields:
-                continue
-            if value is None:
-                continue
-            yaml_loaded_fields.add(field_name)
-            if field_name in self.model_fields_set:
-                continue
-            try:
-                if field_name == "file_exporter_logs":
-                    if isinstance(value, (str, Path)):
-                        value = Path(value)
-                setattr(self, field_name, value)
-            except Exception:
-                pass
-        for field_name in yaml_loaded_fields:
-            self.model_fields_set.add(field_name)
-        self.sync_nested_sections()
-
-    @model_validator(mode="after")
-    def sync_nested_sections(self):
+    def _sync_nested_sections(self):
         self.app = AppSettings(env_code=self.env_code, logger_level=self.logger_level)
         self.tracking = TrackingSettings(
             enabled=self.enabled,
@@ -1097,6 +1120,12 @@ class AIMonitorSettings(BaseSettings):
                     batch_size=self.kafka_batch_size,
                     retries=self.kafka_retry_policy,
                 ),
+                topics=KafkaTopicsSettings(
+                    event=self.kafka_topic_event,
+                    metric=self.kafka_topic_metric,
+                    log=self.kafka_topic_log,
+                    span=self.kafka_topic_span,
+                )
             ),
             otel=OpenTelemetryExporterSettings(
                 enabled=self.otel_mcp_exporter_enabled,
@@ -1114,6 +1143,31 @@ class AIMonitorSettings(BaseSettings):
             ),
         )
         return self
+
+    def _apply_flattened_file_values(self, flattened_data: dict[str, Any]) -> None:
+        yaml_loaded_fields = set()
+        for field_name, value in flattened_data.items():
+            if field_name not in self.__class__.model_fields:
+                continue
+            if value is None:
+                continue
+            yaml_loaded_fields.add(field_name)
+            if field_name in self.model_fields_set:
+                continue
+            try:
+                if field_name == "file_exporter_logs":
+                    if isinstance(value, (str, Path)):
+                        value = Path(value)
+                setattr(self, field_name, value)
+            except Exception:
+                pass
+        for field_name in yaml_loaded_fields:
+            self.model_fields_set.add(field_name)
+        self._sync_nested_sections()
+
+    @model_validator(mode="after")
+    def sync_nested_sections(self) -> Self:
+        return self._sync_nested_sections()
 
     @field_validator("redis_url", "mongodb_url", "postgres_url", mode="before")
     @classmethod

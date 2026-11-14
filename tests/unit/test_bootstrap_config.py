@@ -136,6 +136,11 @@ exporters:
     group_id: "aimonitor-test-group"
     max_in_flight_requests_per_connection: 3
     buffer_timeout: 2.5
+    topics:
+      event: "aimonitor.events"
+      metric: "aimonitor.metrics"
+      log: "aimonitor.logs"
+      span: "aimonitor.spans"
     sasl:
       mechanism: "PLAIN"
       username: "demo-user"
@@ -159,6 +164,10 @@ exporters:
     assert settings.exporters.kafka.group_id == "aimonitor-test-group"
     assert settings.exporters.kafka.max_in_flight_requests_per_connection == 3
     assert settings.exporters.kafka.buffer_timeout == 2.5
+    assert settings.exporters.kafka.topics.event == "aimonitor.events"
+    assert settings.exporters.kafka.topics.metric == "aimonitor.metrics"
+    assert settings.exporters.kafka.topics.log == "aimonitor.logs"
+    assert settings.exporters.kafka.topics.span == "aimonitor.spans"
     assert settings.exporters.kafka.producer.acks == "all"
     assert settings.exporters.kafka.producer.compression == "gzip"
     assert settings.exporters.kafka.producer.linger_ms == 25
