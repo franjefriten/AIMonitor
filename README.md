@@ -42,9 +42,9 @@ In AIMonitor, an *Exporter* refers to a class that inherits from *BaseExporter* 
 | **FileExporter**          | JSONL file output with rotation | ✅ Stable                    |
 | **SQLiteExporter**        | Local database storage          | ✅ Stable                    |
 | **PrometheusExporter**    | Prometheus metrics endpoint     | ⚠️ On development         |
-| **OpenTelemetryExporter** | OTel span export                | ✅ Stable                    |
+| **OpenTelemetryExporter** | OTel span export                | ⚠️ On development                   |
 | **WebhookExporter**       | HTTP endpoint POST              | ✅ Stable                    |
-| **KafkaExporter**         | Kafka topic producer            | ✅ Stable                   |
+| **KafkaExporter**         | Kafka topic producer            | ⚠️ On development                   |
 | **PostgreSQLExporter**    | Postgres implementation         | ❌ Coming on future releases |
 | **MongoDBExporter**       | MongoDb implementation          | ❌ Coming on future releases |
 
