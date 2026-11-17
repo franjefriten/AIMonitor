@@ -10,7 +10,7 @@ AIMonitor is built as a modular monitoring framework for MCP workflows, with a c
 The repository is organized into:
 
 - `core/`: event model, registry and decorators for tool monitoring
-- `exporters/`: output adapters for file, SQLite, Prometheus, and OpenTelemetry
+- `exporters/`: output adapters for console, file, SQLite, Webhook/HTTP, Prometheus, OpenTelemetry, and Kafka
 - `telemetry/`: internal SDK telemetry manager and OpenTelemetry integration
 - `configs/`: settings model and environment handling
 - `tests/`: unit and integration tests
@@ -58,7 +58,11 @@ Persists events in SQLite tables, useful for local debugging and simple storage.
 
 ### `PrometheusExporter`
 
-Exposes metrics as Prometheus counters and histograms.
+Exposes `MetricEvent` signals as Prometheus counters, gauges, or histograms. It does not export raw `MCPEvent`, log, or span payloads; if one of those signals needs to produce a Prometheus observation, instrumentation should emit a corresponding `MetricEvent`.
+
+Each metric name has one stable metric type and label-name set for the lifetime of the exporter. Counter events increment by their value and reject negative increments; gauge events set the current value; histogram events observe the value.
+
+See [built-in exporters](./exporters.md) for the purpose, supported signals, and delivery model of each native exporter.
 
 ### `OpenTelemetryExporter`
 

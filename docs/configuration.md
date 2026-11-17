@@ -49,7 +49,7 @@ AIMonitor accepts a nested exporter layout, including Kafka producer settings an
 
 ```yaml
 app:
-  env: ENV
+  env: DEV
 
 tracking:
   enabled: true

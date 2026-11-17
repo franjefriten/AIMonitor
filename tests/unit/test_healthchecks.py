@@ -1,3 +1,5 @@
+from turtle import rt
+
 from aimonitor.exporters.base import BaseExporter, with_retry
 from aimonitor.core.event import (
     MCPEvent,
@@ -109,12 +111,14 @@ async def test_base_healthcheck_wraps_custom_healthcheck_and_emits_telemetry(mon
 
     assert healthy == True
     summary_snapshot = registry._health.model_dump().get("summary")
+    assert summary_snapshot is not None
     assert summary_snapshot["total_exporters"] == 1
     assert summary_snapshot["healthy_count"] == 1
     assert summary_snapshot["down_count"] == 0
 
     key = registry._snapshot_key(exporter)
     snapshot = registry._health.model_dump().get("exporters")
+    assert snapshot is not None
     assert snapshot[key].get("status") == HealthStatus.HEALTHY
     assert snapshot[key].get("last_success_at") is not None
     assert snapshot[key].get("last_failure_at") is None
@@ -153,12 +157,14 @@ async def test_healthcheck_false_populates_snapshot(monkeypatch):
     assert isinstance(healthy, bool)
     assert healthy == False
     summary_snapshot = registry._health.model_dump().get("summary")
+    assert summary_snapshot is not None
     assert summary_snapshot["total_exporters"] == 1
     assert summary_snapshot["healthy_count"] == 0
     assert summary_snapshot["down_count"] == 1
 
     key = registry._snapshot_key(exporter)
     snapshot = registry._health.model_dump().get("exporters")
+    assert snapshot is not None
     assert snapshot[key].get("status") == HealthStatus.DOWN
     assert snapshot[key].get("last_success_at") is None
     assert snapshot[key].get("last_failure_at") is not None
@@ -200,12 +206,14 @@ async def test_healthcheck_failure_populates_snapshot(monkeypatch):
     assert isinstance(healthy, bool)
     assert healthy == False
     summary_snapshot = registry._health.model_dump().get("summary")
+    assert summary_snapshot is not None
     assert summary_snapshot["total_exporters"] == 1
     assert summary_snapshot["healthy_count"] == 0
     assert summary_snapshot["down_count"] == 1
 
     key = registry._snapshot_key(exporter)
     snapshot = registry._health.model_dump().get("exporters")
+    assert snapshot is not None
     assert snapshot[key].get("status") == HealthStatus.FAILURE
     assert snapshot[key].get("last_success_at") is None
     assert snapshot[key].get("last_failure_at") is not None
@@ -286,6 +294,7 @@ async def test_consecutive_success_and_fail_healthchecks(monkeypatch):
 
     key = registry._snapshot_key(exporter)
     snapshot = registry._health.model_dump().get("exporters")
+    assert snapshot is not None
     assert snapshot[key].get("consecutive_successes") == 0  # After a failed healthcheck, consecutive successes should reset to 0
     assert snapshot[key].get("consecutive_failures") == 1
 
@@ -315,6 +324,7 @@ async def test_health_status_transition(monkeypatch):
     async def capture_healthcheck(snapshot):
         captured.append(snapshot.model_dump())
 
+    monkeypatch.setattr(telemetry_producer, "enabled", True)
     monkeypatch.setattr(telemetry_producer, "record_exporter_healthcheck", capture_healthcheck)
 
     registry = ExporterRegistry()
@@ -411,6 +421,7 @@ async def test_health_recovery(monkeypatch):
     async def capture_healthcheck(snapshot):
         captured.append(snapshot.model_dump())
 
+    monkeypatch.setattr(telemetry_producer, "enabled", True)
     monkeypatch.setattr(telemetry_producer, "record_exporter_healthcheck", capture_healthcheck)
 
     registry = ExporterRegistry()
@@ -465,6 +476,7 @@ async def test_health_recovery_failed(monkeypatch):
     async def capture_healthcheck(snapshot):
         captured.append(snapshot.model_dump())
 
+    monkeypatch.setattr(telemetry_producer, "enabled", True)
     monkeypatch.setattr(telemetry_producer, "record_exporter_healthcheck", capture_healthcheck)
 
     registry = ExporterRegistry()

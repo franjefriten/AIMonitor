@@ -24,7 +24,7 @@ async def test_initialize_monitor_uses_valid_runtime_fields(tmp_path, monkeypatc
     config_path.write_text(
         """
 app:
-  env: ENV
+  env: DEV
 tracking:
   enabled: true
   track_metrics: true
@@ -45,6 +45,7 @@ exporters:
     )
 
     settings = AIMonitorSettings()
+    settings.reset()
     await settings.load_from_yaml(config_path)
 
     assert settings.prometheus_enabled is True
@@ -77,6 +78,35 @@ exporters:
     assert initialized.file_enabled is True
 
     await registry.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_reloading_yaml_replaces_previous_file_values(tmp_path):
+    first_config_path = tmp_path / "first.yaml"
+    first_config_path.write_text(
+        """
+exporters:
+  prometheus:
+    enabled: true
+    url: "http://first-host:9000"
+""".strip()
+    )
+    second_config_path = tmp_path / "second.yaml"
+    second_config_path.write_text(
+        """
+exporters:
+  prometheus:
+    enabled: true
+    url: "http://second-host:9000"
+""".strip()
+    )
+
+    settings = AIMonitorSettings()
+    await settings.load_from_yaml(first_config_path)
+    assert str(settings.prometheus_url).startswith("http://first-host:9000")
+
+    await settings.load_from_yaml(second_config_path)
+    assert str(settings.prometheus_url).startswith("http://second-host:9000")
 
 
 @pytest.mark.asyncio

@@ -1,15 +1,15 @@
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator, Generator
+from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
 from typing import Any, Optional
-from uuid import uuid4
-from contextlib import asynccontextmanager, contextmanager
 
 from aimonitor.core.event import MCPEvent, SignalType, LogEvent, MetricEvent, Status, LogStatus, BaseSignal, MetricType, SpanEvent
 from aimonitor.core.trace import Trace
 from aimonitor.core.registry import registry
 from aimonitor.utils.logger import logger
-from aimonitor.configs.config import get_settings
+from aimonitor.configs.config import get_settings, _VALID_ENV_CODE
 from aimonitor.utils.context import _trace_context
 
 settings = get_settings()
@@ -46,9 +46,9 @@ class ObservabilityAPI:
         error: str = "",
         delta: float = 0.0,
         timestamp: datetime | None = None,
-        metadata: dict | None = None,
+        metadata: dict[str, Any] | None = None,
         version: str = "",
-    ) -> BaseSignal:
+    ) -> MCPEvent | None:
         if not settings.tracking.track_events:
             logger.error(
                 """Events are not being tracked by aimonitor due to environment configuration. 
@@ -75,11 +75,12 @@ class ObservabilityAPI:
     async def log(
         self,
         message: str,
-        metadata: Optional[dict[Any, str]] = {},
-        level: str | LogStatus = LogStatus.INFO,
+        environment: Optional[_VALID_ENV_CODE | str] = None,
+        metadata: dict[str, Any] | None = None,
+        level: LogStatus = LogStatus.INFO,
         source: str = "",
         version: str = "",
-    ) -> BaseSignal:
+    ) -> LogEvent | None:
         if not settings.tracking.track_logs:
             logger.error(
                 """Logs are not being tracked by aimonitor due to environment configuration. 
@@ -88,10 +89,11 @@ class ObservabilityAPI:
             return None
         event = LogEvent(
             message = message,
-            metadata = metadata,
+            metadata = metadata or {},
             level = level,
             source = source,
-            version = version
+            version = version,
+            environment = environment
         )
         await registry.dispatch(events=[event])
         logger.info(f"Log event with id: '{event.id}' dispatched")
@@ -101,32 +103,40 @@ class ObservabilityAPI:
         self,
         name: str,
         value: float | int,
-        metric_type: MetricType = MetricType.GAUGE,
-        labels: dict | None = None,
-        metadata: dict | None = None,
+        metric_type: MetricType | str,  
+        environment: Optional[_VALID_ENV_CODE | str] = None,
+        labels: dict[str, str] | None = None,
+        metadata: dict[str, Any] | None = None,
         version: str = "",
-    ) -> BaseSignal:
+    ) -> MetricEvent | None:
         if not settings.tracking.track_metrics:
             logger.error(
                 """Metrics are not being tracked by aimonitor due to environment configuration. 
                 Check env vars or .yaml/.json config file"""
             )
             return None
+        if isinstance(metric_type, str):
+            metric_type = MetricType(metric_type)
         event = MetricEvent(
             name=name,
             value=value,
             metric_type=metric_type,
             labels=labels or {},
             metadata=metadata or {},
-            version=version
+            version=version,
+            environment=environment
         )
-        self.register_error(event) if event.labels.get("status", "") == Status.ERROR else None
         await registry.dispatch(events=[event])
         logger.info(f"Metric event with id '{event.id}' dispatched")
         return event
 
     @asynccontextmanager
-    async def aspan(self, operation_name: str, metadata: Optional[dict] = None, capture_exceptions: bool = False):
+    async def aspan(
+        self,
+        operation_name: str,
+        metadata: dict[str, Any] | None = None,
+        capture_exceptions: bool = False,
+    ) -> AsyncGenerator[SpanEvent | None, None]:
         """Asynchronous context manager for creating a span event."""
 
         if not settings.tracking.track_events:
@@ -164,7 +174,12 @@ class ObservabilityAPI:
             _trace_context.reset(token)
 
     @contextmanager
-    def span(self, operation_name: str, metadata: Optional[dict] = None, capture_exceptions: bool = False):
+    def span(
+        self,
+        operation_name: str,
+        metadata: dict[str, Any] | None = None,
+        capture_exceptions: bool = False,
+    ) -> Generator[SpanEvent | None]:
         """Synchronous context manager for creating a span event."""
         if not settings.track_events:
             logger.error(
@@ -210,7 +225,11 @@ class ObservabilityAPI:
         trace = _trace_context.get()
         return trace.current_span() if trace else None
     
-    def start_span(self, operation_name: str, metadata: Optional[dict] = None) -> SpanEvent:
+    def start_span(
+        self,
+        operation_name: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> SpanEvent:
         """Starts a new span event and returns it. Use this when you want to manage the span manually."""
         trace = _trace_context.get()
         if not trace:
@@ -232,7 +251,7 @@ class ObservabilityAPI:
             return trace.spans.get(current_span.parent_id)
         return None
     
-    def register_error(self, event: MCPEvent, msg: str) -> None:
+    def register_error(self, event: MCPEvent, msg: str) -> MCPEvent:
         """
         When tool execution does not fail, but returns an 'error' or unwanted result, we can register it as an error in the span event.
         This method is meant to be used inside a decorator that tracks tool. an event must be parsed to this method, along with the error message. The method will then register the error in the current span event, if any.

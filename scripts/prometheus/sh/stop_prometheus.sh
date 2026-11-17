@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-CONTAINER_NAME="prometheus"
+CONTAINER_NAME="${PROMETHEUS_CONTAINER_NAME:-prometheus}"
 IMAGE_NAME="prom/prometheus"
 
 echo "Stopping Prometheus container..."

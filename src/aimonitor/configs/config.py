@@ -8,7 +8,7 @@ import socket
 import aiofiles
 import json
 import yaml
-from pydantic import AnyUrl, BaseModel, Field, FilePath, HttpUrl, field_validator, AliasChoices, SecretStr, model_validator
+from pydantic import AnyUrl, BaseModel, Field, FilePath, HttpUrl, PrivateAttr, field_validator, AliasChoices, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 import logging
@@ -161,13 +161,13 @@ config.dictConfig(config=LOGGING_CONFIG)
 config_logger = getLogger("AIMonitor.Config") # avoid circular import
 
 class _VALID_ENV_CODE(str, Enum):
-    ENV = "ENV"
+    DEV = "DEV"
     STG = "STG"
     PRO = "PRO"
 
 
 class AppSettings(BaseModel):
-    env_code: _VALID_ENV_CODE | None = Field(default=_VALID_ENV_CODE.ENV, description="Environment code used for configs such as logs")
+    env_code: _VALID_ENV_CODE | None = Field(default=_VALID_ENV_CODE.DEV, description="Environment code used for configs such as logs")
     logger_level: str = Field(default="INFO", description="Logger level used for the module inner console logs")
 
     @property
@@ -276,6 +276,7 @@ class AIMonitorSettings(BaseSettings):
         populate_by_name=True,
         extra="ignore",
     )
+    _file_loaded_fields: set[str] = PrivateAttr(default_factory=set)
 
     app: AppSettings = Field(default_factory=AppSettings)
     tracking: TrackingSettings = Field(default_factory=TrackingSettings)
@@ -491,7 +492,7 @@ class AIMonitorSettings(BaseSettings):
         validation_alias=AliasChoices(*_RETRIES_POLICY_ALIASES)
     )
     env_code: Optional[_VALID_ENV_CODE] = Field(
-        default=_VALID_ENV_CODE.ENV, 
+        default=_VALID_ENV_CODE.DEV, 
         description="Environment code used for configs such as logs",
         validation_alias=AliasChoices(*_ENV_CODE_ALIASES)    
     )
@@ -543,13 +544,13 @@ class AIMonitorSettings(BaseSettings):
         description="Whether the registry background exporter healthcheck loop is enabled",
         validation_alias=AliasChoices(*_HEALTHCHECK_ENABLED_ALIASES),
     )
-    healthcheck_interval: int = Field(
+    healthcheck_interval: float = Field(
         default=60,
         description="Seconds between exporter health checks when the registry background loop is enabled",
         ge=1,
         validation_alias=AliasChoices(*_HEALTHCHECK_INTERVAL_ALIASES),
     )
-    healthcheck_timeout: int = Field(
+    healthcheck_timeout: float = Field(
         default=10,
         description="Timeout in seconds for each exporter health check when the registry background loop is enabled",
         ge=1,
@@ -560,7 +561,7 @@ class AIMonitorSettings(BaseSettings):
         description="Retry policy for exporter health checks when the registry background loop is enabled",
         validation_alias=AliasChoices(*_HEALTHCHECK_RETRY_POLICY_ALIASES),
     )
-    healthcheck_recovery_timeout: int = Field(
+    healthcheck_recovery_timeout: float = Field(
         default=10,
         description="Timeout in seconds for recovery attempts of each exporter when the registry background loop is enabled",
         ge=1,
@@ -574,11 +575,12 @@ class AIMonitorSettings(BaseSettings):
         modules keep a reference to the settings singleton.
         """
         fresh_settings = type(self)()
+        fresh_fields_set = fresh_settings.model_fields_set.copy()
         self.__dict__.clear()
         self.__dict__.update(fresh_settings.__dict__)
-        if hasattr(self, "__pydantic_fields_set__"):
-            self.__pydantic_fields_set__.clear()
         self.model_fields_set.clear()
+        self.model_fields_set.update(fresh_fields_set)
+        self._file_loaded_fields.clear()
 
     # OpenTelemetry exporter for monitored MCP events (separate from SDK internal telemetry)
     otel_enabled: bool = Field(
@@ -608,7 +610,7 @@ class AIMonitorSettings(BaseSettings):
             config_logger.error("YAML config file was not found")
             raise FileNotFoundError("YAML config file was not found")
 
-        self.model_fields_set.clear()
+        self._prepare_for_file_load()
         async with aiofiles.open(yaml_file_path, mode="r", encoding="utf-8") as config_file:
             data = yaml.safe_load(await config_file.read()) or {}
 
@@ -827,7 +829,7 @@ class AIMonitorSettings(BaseSettings):
             config_logger.error("JSON config file was not found")
             raise FileNotFoundError("JSON config file was not found")
 
-        self.model_fields_set.clear()
+        self._prepare_for_file_load()
         async with aiofiles.open(json_file_path, mode="r", encoding="utf-8") as json_file:
             data = json.loads(await json_file.read())
 
@@ -1144,14 +1146,17 @@ class AIMonitorSettings(BaseSettings):
         )
         return self
 
+    def _prepare_for_file_load(self) -> None:
+        self.model_fields_set.difference_update(self._file_loaded_fields)
+        self._file_loaded_fields.clear()
+
     def _apply_flattened_file_values(self, flattened_data: dict[str, Any]) -> None:
-        yaml_loaded_fields = set()
+        loaded_fields = set()
         for field_name, value in flattened_data.items():
             if field_name not in self.__class__.model_fields:
                 continue
             if value is None:
                 continue
-            yaml_loaded_fields.add(field_name)
             if field_name in self.model_fields_set:
                 continue
             try:
@@ -1159,10 +1164,11 @@ class AIMonitorSettings(BaseSettings):
                     if isinstance(value, (str, Path)):
                         value = Path(value)
                 setattr(self, field_name, value)
+                loaded_fields.add(field_name)
             except Exception:
                 pass
-        for field_name in yaml_loaded_fields:
-            self.model_fields_set.add(field_name)
+        self.model_fields_set.update(loaded_fields)
+        self._file_loaded_fields.update(loaded_fields)
         self._sync_nested_sections()
 
     @model_validator(mode="after")

@@ -1,6 +1,7 @@
 @echo off
 setlocal
-set CONTAINER=prometheus
+if not defined PROMETHEUS_CONTAINER_NAME set PROMETHEUS_CONTAINER_NAME=prometheus
+set CONTAINER=%PROMETHEUS_CONTAINER_NAME%
 set IMAGE=prom/prometheus
 
 echo Stopping Prometheus container...

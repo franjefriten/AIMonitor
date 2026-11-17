@@ -122,7 +122,7 @@ async def test_kafka_exporter_sends_events_to_kakfa(tmp_path, isolated_settings,
     config_path.write_text(
         """
 app:
-  env: ENV
+  env: DEV
 tracking:
   enabled: true
   track_metrics: true
@@ -225,7 +225,7 @@ async def test_kafka_healthcheck_returns_true_when_kafka_is_healthy(tmp_path, is
     config_path.write_text(
         """
 app:
-  env: ENV
+  env: DEV
 tracking:
   enabled: true
   track_metrics: true
@@ -286,7 +286,7 @@ async def test_kafka_exporter_recovery_cycle_after_broker_restart(tmp_path, isol
     config_path.write_text(
         """
 app:
-  env: ENV
+  env: DEV
 tracking:
   enabled: true
   track_metrics: true
@@ -383,7 +383,7 @@ async def test_kafka_exporter_describe_topics_and_idempotent_closure(tmp_path, i
     config_path.write_text(
         """
 app:
-  env: ENV
+  env: DEV
 tracking:
   enabled: true
   track_metrics: true

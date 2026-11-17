@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This roadmap defines the next development objectives after merging the healthcheck and Kafka work. It prioritizes reliability and contract clarity before adding more exporters or operational features.
+This roadmap defines the next development objectives after the healthcheck and Kafka work. The current development focus is to improve the reliability and consistency of every exporter already available before adding new integrations or operational features.
 
 The guiding principles are:
 
@@ -21,6 +21,7 @@ The project currently provides:
 - Separate liveness and readiness APIs.
 - A `TelemetryProducer` / `TelemetryConsumer` split.
 - A Kafka exporter with configurable producer settings.
+- Built-in exporters for Console, File, SQLite, Webhook/HTTP, Prometheus, and OpenTelemetry.
 - Initial configuration placeholders for MongoDB and PostgreSQL destinations, but no completed MongoDB or PostgreSQL exporters.
 - MCP-oriented tool decorators, trace/span events, and OpenTelemetry integration.
 - A framework-agnostic decorator path, but no native FastMCP, smolagents, or LangChain adapters.
@@ -42,7 +43,7 @@ Priorities are defined as follows:
 | P0 | Phase 0 | Stabilize the merged baseline | A reproducible test suite and clear integration-test contract. |
 | P0 | Phase 1 | Harden Kafka production behavior | Correct producer configuration, delivery semantics, lifecycle, and recovery. |
 | P1 | Phase 2 | Complete the configuration refactor | One canonical nested configuration model with predictable precedence and validation. |
-| P1 | Phase 3 | Formalize the exporter contract | Consistent behavior for export, healthcheck, description, recovery, and shutdown. |
+| P1 | Phase 3 | Improve all built-in exporters | Consistent behavior, failure semantics, lifecycle, and focused coverage across the existing exporter set. |
 | P1 | Phase 4 | Add framework compatibility adapters | Instrument FastMCP, LangChain, and smolagents through optional, framework-specific adapters that emit one canonical AIMonitor model. |
 | P1 | Phase 5 | Add general-purpose persistence exporters | Reliable MongoDB and PostgreSQL exporters for AI events, traces, metrics, and governance records. |
 | P1 | Phase 6 | Add AI usage governance | Token, model, cost, policy, and budget data with privacy and aggregation controls. |
@@ -132,13 +133,16 @@ Priorities are defined as follows:
 - Bootstrap behavior is deterministic and does not modify the settings object.
 - Invalid optional integration settings fail early with actionable messages.
 
-## Phase 3: Formal Exporter Contract
+## Phase 3: Built-in Exporter Reliability and Contract
 
 **Priority:** P1  
-**Goal:** Make every exporter obey the same lifecycle and failure model.
+**Goal:** Improve the reliability of every exporter already shipped with AIMonitor while keeping their backend-specific behavior explicit.
+
+**Scope:** Kafka, Prometheus, OpenTelemetry, Webhook/HTTP, File, SQLite, and Console exporters. This phase does not add MongoDB or PostgreSQL exporters; those remain in Phase 5.
 
 ### Work items
 
+- Create an exporter matrix documenting each exporter's configuration, optional dependencies, delivery guarantees, resource ownership, failure behavior, recovery support, and existing tests.
 - Document the required behavior of:
   - `export()`;
   - `export_batch()`;
@@ -150,15 +154,23 @@ Priorities are defined as follows:
 - Ensure `describe()` remains diagnostic-only and never controls readiness.
 - Define whether exporter operation failures are represented separately from healthcheck `DOWN` and `FAILURE` states.
 - Make close and recovery behavior idempotent for every exporter.
+- Implement and test the close lifecycle contract for built-in exporters: successful closure publishes the stopped lifecycle event and updates the registry health snapshot to `STOPPED`; cleanup failures remain observable.
+- Document how users design custom exporters, including the `BaseExporter` interface, supported signals, configuration and optional dependencies, error handling, health reporting, recovery, idempotent cleanup, and lifecycle reporting.
 - Review all exporters for swallowed exceptions, unbounded retries, resource leaks, and inconsistent logging.
+- Add focused unit and integration coverage for each exporter's success path, invalid or unavailable destination, operation failure, and cleanup behavior, using external services only where required.
 - Keep failed exporters in the registry when recovery and lifecycle history require them.
-- Add contract tests that can run against every exporter with fake dependencies.
+- Add shared contract tests that can run against every compatible exporter with fake dependencies, plus exporter-specific tests where the backend semantics differ.
+- Include a minimal custom-exporter example and guidance for testing it against the documented contract.
+- Fix gaps one exporter at a time, preserving its documented payload and delivery semantics.
 
 ### Exit criteria
 
-- A shared exporter contract test suite passes for all built-in exporters.
+- Every built-in exporter has a documented contract and targeted tests for its supported behavior.
+- Shared exporter contract tests pass for all compatible built-in exporters.
 - Readiness always comes from registry snapshots.
 - Export failures, healthcheck failures, and recovery failures are distinguishable in logs and snapshots.
+- Closing a built-in exporter leaves a `STOPPED` health snapshot and publishes the lifecycle transition.
+- The custom-exporter guide explains the extension contract and the lifecycle responsibilities of third-party implementations.
 - Shutdown does not leave workers, connections, or tasks running.
 
 ## Phase 4: Framework Compatibility Adapters
@@ -686,34 +698,38 @@ These decisions should be recorded in tests and documentation before adding more
 4. Should export-operation failures have their own status instead of sharing `FAILURE` with healthcheck execution failures?
 5. Should the registry retain failed exporters indefinitely, or should removal require an explicit administrative action?
 6. Should recovery reconnect existing instances only, or should exporters support factory-based recreation?
-7. Which configuration aliases remain supported during development, and when can they be removed?
-8. Which optional integrations are release-blocking and which are best-effort extras?
-9. Which model providers and pricing sources are supported for the first governance release?
-10. Should governance enforcement be implemented in the SDK, delegated to the host application, or both?
-11. Which exact `a2a-sdk` and A2A protocol versions should be the first
+7. Should exporter lifecycle events and registry snapshot updates be owned by `BaseExporter`, the registry, or a callback/hook when `close()` is invoked directly?
+8. What lifecycle reporting responsibilities and supported hooks should the custom-exporter guide require from third-party implementations?
+9. Which configuration aliases remain supported during development, and when can they be removed?
+10. Which optional integrations are release-blocking and which are best-effort extras?
+11. Which model providers and pricing sources are supported for the first governance release?
+12. Should governance enforcement be implemented in the SDK, delegated to the host application, or both?
+13. Which exact `a2a-sdk` and A2A protocol versions should be the first
     conformance target?
-12. Which official `a2a-sdk` transports and public lifecycle hooks should be
+14. Which official `a2a-sdk` transports and public lifecycle hooks should be
     supported first?
-13. Which payload fields are allowed to cross agent boundaries by default?
-14. Should A2A streaming be represented as one task with updates, or should
+15. Which payload fields are allowed to cross agent boundaries by default?
+16. Should A2A streaming be represented as one task with updates, or should
     selected updates also be materialized as independent events?
-15. When should an alternative implementation such as `fastA2A` justify a
+17. When should an alternative implementation such as `fastA2A` justify a
     second adapter and a separate compatibility matrix?
 
 ## Recommended Next Sequence
 
-1. Fix and test Kafka producer compatibility and delivery semantics.
-2. Establish a clean CI test matrix with explicit external-service fixtures.
-3. Complete configuration precedence and validation tests.
-4. Add shared exporter contract tests.
-5. Define the framework-neutral run, context, and payload-capture contracts.
-6. Implement the FastMCP and LangChain adapters, then the smolagents
+1. Complete any remaining Kafka delivery and lifecycle gaps, including broker failure and recovery behavior.
+2. Build the exporter matrix for the existing set: Kafka, Prometheus, OpenTelemetry, Webhook/HTTP, File, SQLite, and Console.
+3. Add reusable contract tests and identify the first concrete reliability gap in each exporter.
+4. Fix and validate built-in exporters one at a time, including their configuration, failure, and cleanup paths.
+5. Establish a clean CI test matrix with explicit external-service fixtures.
+6. Complete configuration precedence and validation tests that affect exporter setup.
+7. Define the framework-neutral run, context, and payload-capture contracts.
+8. Implement the FastMCP and LangChain adapters, then the smolagents
    OpenTelemetry path.
-7. Implement the official `a2a-sdk` event, client, server, and context
+9. Implement the official `a2a-sdk` event, client, server, and context
    integration contracts.
-8. Implement MongoDB and PostgreSQL persistence exporters.
-9. Define AI usage, cost, budget, and privacy governance.
-10. Add A2A boundary governance and compatibility-matrix tests.
-11. Add registry runtime metrics and snapshot staleness.
-12. Run sustained-load and failure-recovery tests.
-13. Update release documentation and package metadata.
+10. Implement MongoDB and PostgreSQL persistence exporters.
+11. Define AI usage, cost, budget, and privacy governance.
+12. Add A2A boundary governance and compatibility-matrix tests.
+13. Add registry runtime metrics and snapshot staleness.
+14. Run sustained-load and failure-recovery tests.
+15. Update release documentation and package metadata.

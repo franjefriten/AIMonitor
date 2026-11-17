@@ -150,7 +150,7 @@ The preferred configuration path is via `AIMonitorSettings` and `initialize_moni
 
 ```yaml
 app:
-  env: ENV
+  env: DEV
 
 tracking:
   enabled: true

@@ -18,8 +18,7 @@ class Trace:
         ):
         self.trace_id = f"{func_name}_{uuid4()}" if func_name else str(uuid4())
         self.spans: dict[str, SpanEvent] = {}
-        self.root_span_id: str | None = f"{func_name}_{uuid4()}" if func_name else None
-        self.active_span_id: str | None = self.root_span_id
+        self.active_span_id: str | None = None
         self.metadata = metadata or {}
 
     def start_span(self, operation_name: str, metadata: Optional[Dict[str, Any]] = None) -> SpanEvent:
@@ -35,7 +34,6 @@ class Trace:
             trace_id=self.trace_id,
             parent_id=parent_id,
             span_id=span_id,
-            root_span_id=self.root_span_id,
             operation_name=operation_name,
             metadata=metadata or {},
             timestamp=datetime.now(timezone.utc),
@@ -43,8 +41,6 @@ class Trace:
             status=Status.SUCCESS,
         )
         self.spans[span_id] = span
-        if self.root_span_id is None:
-            self.root_span_id = span_id
         return span
 
     def end_span(self, span_id: str):

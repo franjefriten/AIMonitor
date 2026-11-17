@@ -58,7 +58,7 @@ AIMonitor is thought from the beginning with one core idea: **simple configurati
 
 ```yaml
 app:
-  env: ENV
+  env: DEV
 tracking:
   enabled: true
   track_metrics: true
@@ -179,12 +179,16 @@ python -m pytest tests/unit -q
 # Integration tests
 # Run furst the setup scripts foumd om /scripts
 
-# kafka
+# Prometheus
 sh scripts/prometheus/sh/run_prometheus.sh
-# prometheus
+# Restart Prometheus
+sh scripts/prometheus/sh/restart_prometheus.sh
+# Kafka
 sh scripts/kafka/sh/run_kafka.sh
 
 python -m pytest tests/integration
+
+The Prometheus scripts use container name `prometheus` and host port `9090` by default. Override `PROMETHEUS_CONTAINER_NAME` and `PROMETHEUS_HOST_PORT` to run an isolated instance.
 
 # All tests
 python -m pytest tests/ -v
