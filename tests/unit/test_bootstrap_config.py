@@ -57,8 +57,8 @@ exporters:
     assert settings.otel_mcp_service_name == "aimonitor-test"
 
     class PrometheusStub(BaseExporter):
-        def __init__(self, **kwargs):
-            pass
+        def __init__(self, address: str):
+            self.address = address
 
         def export_batch(self, event_batch):
             return super().export_batch(event_batch)

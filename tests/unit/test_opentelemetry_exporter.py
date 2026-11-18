@@ -9,9 +9,14 @@ from aimonitor.exporters.opentelemetry import OpenTelemetryExporter
 class _DummySpan:
     def __init__(self):
         self.attributes = {}
+        self.start_time = None
+        self.end_time = None
 
     def set_attribute(self, key, value):
         self.attributes[key] = value
+
+    def end(self, end_time=None):
+        self.end_time = end_time
 
 
 class _SpanContext:
@@ -33,6 +38,12 @@ class _DummyTracer:
         span = _DummySpan()
         self.started_spans.append((span_name, span))
         return _SpanContext(span)
+
+    def start_span(self, span_name, **kwargs):
+        span = _DummySpan()
+        span.start_time = kwargs.get("start_time")
+        self.started_spans.append((span_name, span))
+        return span
 
 
 def _build_fake_opentelemetry_module():
@@ -96,6 +107,10 @@ def test_opentelemetry_exporter_exports_event_to_span(_):
     assert span.attributes["mcp.tool_name"] == "sample_tool"
     assert span.attributes["mcp.status"] == "success"
     assert span.attributes["mcp.delta"] == 0.15
+    expected_end_time = int(event.timestamp.timestamp() * 1_000_000_000)
+    expected_start_time = expected_end_time - int(event.delta * 1_000_000_000)
+    assert span.start_time == expected_start_time
+    assert span.end_time == expected_end_time
 
 
 @patch("os.getenv", return_value="false")

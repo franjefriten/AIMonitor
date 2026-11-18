@@ -67,6 +67,7 @@ See [built-in exporters](./exporters.md) for the purpose, supported signals, and
 ### `OpenTelemetryExporter`
 
 Converts `MCPEvent` objects into OpenTelemetry spans without coupling them to internal SDK telemetry.
+Each span's start and end times are derived from the event timestamp and execution duration.
 
 ## Internal telemetry vs event export
 

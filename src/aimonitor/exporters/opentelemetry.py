@@ -1,5 +1,6 @@
 import os
 import json
+from datetime import timezone
 from typing import Any, List, Optional
 
 from aimonitor.configs.config import get_settings
@@ -73,9 +74,15 @@ class OpenTelemetryExporter(BaseExporter):
         span_name = f"{self.span_prefix}.{tool_name}"
 
         try:
-            with self.tracer.start_as_current_span(span_name) as span:
+            timestamp = event.timestamp
+            if timestamp.tzinfo is None:
+                timestamp = timestamp.replace(tzinfo=timezone.utc)
+            end_time = int(timestamp.timestamp() * 1_000_000_000)
+            delta = float(getattr(event, "delta", 0.0))
+            start_time = end_time - int(delta * 1_000_000_000)
+            span = self.tracer.start_span(span_name, start_time=start_time)
+            try:
                 status = event.status.value if hasattr(event.status, "value") else str(event.status)
-                delta = float(getattr(event, "delta", 0.0))
 
                 span.set_attribute("mcp.tool_name", tool_name)
                 span.set_attribute("mcp.status", status)
@@ -95,6 +102,8 @@ class OpenTelemetryExporter(BaseExporter):
 
                 if hasattr(event, "message") and getattr(event, "message", None):
                     span.set_attribute("mcp.message", str(event.message))
+            finally:
+                span.end(end_time=end_time)
         except Exception as exc:
             logger.error("Failed to export MCP event '%s' to OpenTelemetry span: %s", tool_name, exc)
 

@@ -68,7 +68,7 @@ async def initialize_monitor(config_path: str | Path | None = None) -> AIMonitor
         )
 
     if settings.exporters.prometheus.enabled and settings.exporters.prometheus.url is not None:
-        exporters.append(PrometheusExporter(address=str(settings.exporters.prometheus.url), registry=None))
+        exporters.append(PrometheusExporter(address=str(settings.exporters.prometheus.url)))
 
     if settings.exporters.file.enabled and settings.exporters.file.path is not None:
         exporters.append(FileExporter(settings.exporters.file.path))
