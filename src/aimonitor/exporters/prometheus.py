@@ -186,10 +186,10 @@ class PrometheusExporter(BaseExporter):
         """
         Return diagnostic details for the PrometheusExporter.
         """
-        server_is_alive = self._server_started and self._server_thread.is_alive()
+        server_is_healthy = await self.healthcheck()
         return {
-            "status": "healthy" if server_is_alive else "unhealthy",
-            "message": "PrometheusExporter is operational." if server_is_alive else "PrometheusExporter is not operational.",
+            "status": "healthy" if server_is_healthy else "unhealthy",
+            "message": "PrometheusExporter is operational." if server_is_healthy else "PrometheusExporter is not operational.",
             "address": self.address,
             "port": self.port,
             "registry": str(self.registry),

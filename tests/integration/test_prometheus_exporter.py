@@ -308,6 +308,31 @@ async def test_prometheus_exporter_exposes_metrics_over_http():
 @pytest.mark.integration
 @pytest.mark.asyncio
 @pytest.mark.prometheus
+async def test_prometheus_describe_reports_http_probe_failure(monkeypatch):
+    port = _get_free_port()
+    exporter = PrometheusExporter(address=f"http://127.0.0.1:{port}")
+
+    async def return_service_unavailable(client, url, **kwargs):
+        request = httpx.Request("GET", str(url))
+        return httpx.Response(503, request=request)
+
+    try:
+        await exporter.connect()
+        assert exporter._server_thread.is_alive()
+        monkeypatch.setattr(httpx.AsyncClient, "get", return_service_unavailable)
+
+        description = await exporter.describe()
+
+        assert exporter._server_thread.is_alive()
+        assert description["status"] == "unhealthy"
+        assert description["message"] == "PrometheusExporter is not operational."
+    finally:
+        await exporter.close()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+@pytest.mark.prometheus
 async def test_prometheus_exporter_lifecycle_operations_are_idempotent():
     port = _get_free_port()
     exporter = PrometheusExporter(address=f"http://127.0.0.1:{port}")
