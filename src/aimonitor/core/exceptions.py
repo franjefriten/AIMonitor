@@ -181,6 +181,21 @@ class ExporterNotReadyError(ExporterError):
         return f"ExporterNotReadyError: {self.message}"
 
 
+class ExporterHealthcheckError(ExporterError):
+    """
+    Exception raised when an exporter fails its healthcheck.
+    """
+    def __init__(self, message: str):
+        self.message = message
+        super().__init__(f"Exporter healthcheck error: {message}")
+
+    def __repr__(self):
+        return f"ExporterHealthcheckError(message={self.message})"
+
+    def __str__(self):
+        return f"ExporterHealthcheckError: {self.message}"
+    
+
 class ExporterRecoveryError(ExporterError):
     """
     Exception raised when an exporter encounters an error during recovery. Represents a failed attempt to reconstruct or reconnect an exporter.

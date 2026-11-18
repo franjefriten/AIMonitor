@@ -1,6 +1,10 @@
 import asyncio
+from threading import Thread
 from typing import Any, List, Optional, Sequence
 from urllib.parse import urlparse
+from wsgiref.simple_server import WSGIServer
+
+import httpx
 
 from aimonitor.configs.config import settings
 from aimonitor.core.event import BaseSignal, MetricEvent, MetricType, SignalType
@@ -20,7 +24,6 @@ except ImportError as exc:  # pragma: no cover - import guard
     _PROMETHEUS_IMPORT_ERROR = exc
 else:
     _PROMETHEUS_IMPORT_ERROR = None
-
 
 class PrometheusExporter(BaseExporter):
     """Expose MetricEvent signals as Prometheus metrics for Prometheus to scrape.
@@ -49,8 +52,8 @@ class PrometheusExporter(BaseExporter):
         self.address = address
         self.registry = CollectorRegistry(auto_describe=True)
         self._server_started = False
-        self._http_server: Any = None
-        self._server_thread: Any = None
+        self._http_server: WSGIServer
+        self._server_thread: Thread
         self._metrics: dict[str, tuple[MetricType, tuple[str, ...], Any]] = {}
 
         parsed_url = urlparse(self.address)
@@ -59,7 +62,9 @@ class PrometheusExporter(BaseExporter):
 
     async def connect(self) -> None:
         if self._server_started:
-            return
+            if self._server_thread.is_alive():
+                return
+            await self.close()
         start_server = start_http_server
         if start_server is None:
             raise OptionalDependencyMissingError(
@@ -72,6 +77,16 @@ class PrometheusExporter(BaseExporter):
             registry=self.registry,
         )
         self._server_started = True
+
+    def _metrics_url(self) -> str:
+        host = self.addr
+        if host == "0.0.0.0":
+            host = "127.0.0.1"
+        elif host == "::":
+            host = "::1"
+        if ":" in host and not host.startswith("["):
+            host = f"[{host}]"
+        return f"http://{host}:{self.port}/metrics"
 
     def _metric_for_event(self, event: MetricEvent) -> Any:
         label_names = tuple(sorted(event.labels))
@@ -139,39 +154,39 @@ class PrometheusExporter(BaseExporter):
                 sample.observe(event.value)
 
     async def close(self) -> None:
-        http_server = self._http_server
-        server_thread = self._server_thread
-        if http_server is None:
-            self._server_started = False
+        if not self._server_started:
             return
 
-        await asyncio.to_thread(http_server.shutdown)
+        http_server = self._http_server
+        server_thread = self._server_thread
+        if server_thread.is_alive():
+            await asyncio.to_thread(http_server.shutdown)
         await asyncio.to_thread(http_server.server_close)
-        if server_thread is not None:
-            await asyncio.to_thread(server_thread.join, 5.0)
-            if server_thread.is_alive():
-                raise RuntimeError("Prometheus metrics server did not stop")
-
-        self._http_server = None
-        self._server_thread = None
+        await asyncio.to_thread(server_thread.join, 5.0)
+        if server_thread.is_alive():
+            raise RuntimeError("Prometheus metrics server did not stop")
         self._server_started = False
 
     async def healthcheck(self) -> bool:
         """
         Health check for the PrometheusExporter. This exporter is considered healthy if it can start the HTTP server and expose metrics.
         """
+        if not self._server_started or not self._server_thread.is_alive():
+            return False
+        server_thread = self._server_thread
         try:
-            await self.connect()
-        except Exception as exc:
+            async with httpx.AsyncClient(timeout=2.0) as client:
+                response = await client.get(self._metrics_url())
+        except httpx.HTTPError as exc:
             logger.error("Health check failed for PrometheusExporter: %s", exc)
             return False
-        return bool(self._server_thread and self._server_thread.is_alive())
+        return response.status_code == 200 and server_thread.is_alive()
 
     async def describe(self) -> dict:
         """
         Return diagnostic details for the PrometheusExporter.
         """
-        server_is_alive = bool(self._server_thread and self._server_thread.is_alive())
+        server_is_alive = self._server_started and self._server_thread.is_alive()
         return {
             "status": "healthy" if server_is_alive else "unhealthy",
             "message": "PrometheusExporter is operational." if server_is_alive else "PrometheusExporter is not operational.",
@@ -185,8 +200,11 @@ class PrometheusExporter(BaseExporter):
         Attempt to recover the PrometheusExporter. Recovery is considered successful if the HTTP server can be started.
         """
         try:
-            if not self._server_started:
-                await self.connect()
+            if await self.healthcheck():
+                return True
+            if self._server_started:
+                await self.close()
+            await self.connect()
             return True
         except Exception as e:
             logger.error(f"Recovery failed for PrometheusExporter: {e}")

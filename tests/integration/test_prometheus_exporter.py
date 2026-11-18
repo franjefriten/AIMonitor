@@ -341,6 +341,65 @@ async def test_prometheus_exporter_lifecycle_operations_are_idempotent():
 @pytest.mark.integration
 @pytest.mark.asyncio
 @pytest.mark.prometheus
+async def test_prometheus_exporter_recovers_after_server_thread_stops():
+    port = _get_free_port()
+    exporter = PrometheusExporter(address=f"http://127.0.0.1:{port}")
+
+    try:
+        await exporter.connect()
+        await exporter.export(
+            _build_metric_event(
+                name="recovery_probe",
+                value=6,
+                metric_type=MetricType.GAUGE,
+            )
+        )
+
+        await asyncio.to_thread(exporter._http_server.shutdown)
+        await asyncio.to_thread(exporter._server_thread.join, 5.0)
+        assert not exporter._server_thread.is_alive()
+
+        assert await exporter.recover() is True
+        assert await exporter.healthcheck() is True
+
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            response = await client.get(f"http://127.0.0.1:{port}/metrics")
+
+        assert response.status_code == 200
+        assert "recovery_probe 6.0" in response.text
+    finally:
+        await exporter.close()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+@pytest.mark.prometheus
+async def test_prometheus_exporter_recovers_after_bind_conflict():
+    blocker = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    exporter: PrometheusExporter | None = None
+    try:
+        exclusive_address_use = getattr(socket, "SO_EXCLUSIVEADDRUSE", None)
+        if exclusive_address_use is not None:
+            blocker.setsockopt(socket.SOL_SOCKET, exclusive_address_use, 1)
+        blocker.bind(("127.0.0.1", 0))
+        blocker.listen(1)
+        port = blocker.getsockname()[1]
+        exporter = PrometheusExporter(address=f"http://127.0.0.1:{port}")
+
+        assert await exporter.recover() is False
+
+        blocker.close()
+        assert await exporter.recover() is True
+        assert await exporter.healthcheck() is True
+    finally:
+        blocker.close()
+        if exporter is not None:
+            await exporter.close()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+@pytest.mark.prometheus
 async def test_prometheus_server_restart_resumes_scraping():
     docker = shutil.which("docker")
     if docker is None:
