@@ -69,7 +69,6 @@ from aimonitor.telemetry.api import get_process_liveness, get_sdk_readiness
 async def lifespan(app: FastAPI):
     await initialize_monitor("config.yaml")
     yield
-    from core.registry import registry
     await shutdown_monitor()
 
 

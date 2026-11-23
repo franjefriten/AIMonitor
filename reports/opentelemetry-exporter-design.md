@@ -1,115 +1,114 @@
-# Diseño y guía de refactor del exporter OpenTelemetry
+# OpenTelemetry Exporter Refactor and Guide
 
-> Estado: diseño para guiar una implementación; este documento no implica que el refactor esté aplicado.
+> Status: implementation design. This document does not claim that the refactor is complete.
 
-## 1. Objetivo
+## 1. Objective
 
-OpenTelemetry debe integrarse como un exporter administrado por AIMonitor, siguiendo el modelo de configuración y ciclo de vida de los demás exporters:
+OpenTelemetry should operate as an AIMonitor-managed exporter following the same configuration and lifecycle model as the other exporters:
 
 ```text
-configuración AIMonitor
-    -> providers privados del SDK OpenTelemetry
-    -> procesadores/readers y exporters OTLP
-    -> endpoint OTLP configurado por el usuario
-    -> Collector o backend compatible
+AIMonitor configuration
+  -> private OpenTelemetry SDK providers
+  -> processors/readers and OTLP exporters
+  -> user-configured OTLP endpoint
+  -> Collector or compatible backend
 ```
 
-AIMonitor envía telemetría al endpoint configurado. No necesita implementar una integración distinta para cada backend que acepte OTLP. El Collector es opcional; puede recibir los datos y reenviarlos, pero AIMonitor no controla esa distribución posterior.
+AIMonitor sends telemetry to the configured endpoint. It does not need a separate integration for every OTLP-compatible backend. A Collector is optional; forwarding to additional backends is outside AIMonitor.
 
-El exporter no debe asumir que la aplicación ha creado un provider global, ni instalar o reemplazar providers globales mediante `trace.set_tracer_provider()`, `metrics.set_meter_provider()` o `logs.set_logger_provider()`. Debe crear y cerrar sus propios providers privados.
+The exporter must not assume that the application created a global provider or replace global providers through `trace.set_tracer_provider()`, `metrics.set_meter_provider()`, or `logs.set_logger_provider()`. It must create and close its own private providers.
 
-### Responsabilidades y terminología
+### Responsibilities
 
-- El `OpenTelemetryExporter` de AIMonitor adapta los eventos de AIMonitor a señales OTel, configura providers privados para las señales activas y administra su ciclo de vida.
-- Los exporters OTLP de OpenTelemetry son componentes del SDK que codifican y transportan esas señales al endpoint configurado. AIMonitor no implementa el protocolo protobuf.
-- El destino puede ser un Collector o un backend compatible con OTLP. El Collector es opcional; si se necesita distribuir datos a varios backends, esa distribución queda fuera de AIMonitor.
-- Los spans del provider privado no se integran automáticamente en trazas creadas por la aplicación u otras librerías. El contrato de AIMonitor solo garantiza la relación entre la ejecución MCP y sus spans anidados.
+- `OpenTelemetryExporter` adapts AIMonitor events to OpenTelemetry signals, configures private providers for enabled signals, and manages lifecycle.
+- OpenTelemetry OTLP exporters encode and transport signals. AIMonitor does not implement the protobuf protocol.
+- The destination may be a Collector or compatible OTLP backend.
+- Private spans are not automatically connected to application or library traces. The AIMonitor contract guarantees correlation only for an MCP execution and its nested spans.
 
-## 2. Contrato acordado y alcance
+## 2. Agreed contract and scope
 
-| Señal AIMonitor | Representación OpenTelemetry prevista |
+| AIMonitor signal | OpenTelemetry representation |
 | --- | --- |
-| `MCPEvent` | Span raíz de la ejecución de la tool. |
-| `SpanEvent` | Span hijo/anidado dentro de la misma traza. |
-| `MetricEvent` | Métrica OpenTelemetry, según `MetricType`. |
-| `LogEvent` | Registro de log OpenTelemetry. |
-| Señales internas (`SignalType._INNER`) | No exportar desde este exporter. |
+| `MCPEvent` | Root span for tool execution |
+| `SpanEvent` | Child or nested span in the same trace |
+| `MetricEvent` | OpenTelemetry metric according to `MetricType` |
+| `LogEvent` | OpenTelemetry log record |
+| Internal signals (`SignalType._INNER`) | Not exported |
 
-Decisiones ya acordadas:
+### Decisions
 
-- AIMonitor administra el SDK privado y el transporte OTLP cuando el exporter está habilitado.
-- El usuario configura el destino mediante la configuración de AIMonitor.
-- Los exporters tienen contratos distintos: Kafka publica los eventos de AIMonitor en topics; Prometheus expone agregados numéricos mediante scrape; OpenTelemetry convierte las señales habilitadas al modelo OTel y las envía por OTLP.
-- La traza incluye el span raíz de la ejecución y sus `SpanEvent` anidados.
-- `MCPEvent` y sus `SpanEvent` deben compartir una clave de correlación AIMonitor. El SDK genera los IDs OTel; el exporter conserva un mapping entre IDs internos de span y contextos OTel.
-- `args` y `result` no se exportan por defecto; pueden contener datos sensibles.
-- `MetricEvent`: `Counter.add`, `Histogram.record` y Gauge síncrono `set`. El SDK conserva la última observación del Gauge por conjunto de atributos; no hace falta una caché de valores Gauge propia.
-- OpenTelemetry Python añadió el Gauge síncrono en `opentelemetry-api`/`opentelemetry-sdk` **v1.23.0** y corrigió en **v1.24.0** que `create_gauge()` no fuera abstracto. El mínimo es `>=1.24.0` en Python `<3.14`; para Python `>=3.14` es `>=1.35.0`, porque OTel 1.24 limita Protobuf a `<5` y Protobuf 4 falla al importarse en Python 3.14.
-- `MetricEvent.name` se usa como nombre del instrumento; `labels`, `environment` y `version` se usan como atributos. `metadata` se omite. Se añade `unit` opcional al modelo común, con default vacío.
-- `LogEvent.message` es el body; `level` se convierte a severidad OTel estándar; `source`, `environment` y `version` son atributos. `metadata` se omite por defecto.
-- `enabled` tiene toggles independientes `traces`, `metrics` y `logs`, todos `false` por defecto. Habilitar el exporter no activa señales implícitamente. Si el exporter está habilitado pero no hay señales activas, AIMonitor emite un warning y permite el no-op.
-- Primera versión: solo OTLP/HTTP protobuf; no se añade un selector de protocolo ni soporte gRPC en este alcance. El SDK codifica protobuf. El intervalo de exportación de métricas es configurable y su default será 60 000 ms.
-- `healthcheck()` mide readiness local de los providers configurados; no afirma que el backend remoto haya recibido o almacenado datos.
-- Kafka y Prometheus conservan sus propios contratos: Kafka publica sus eventos en topics y Prometheus expone agregados numéricos.
+- AIMonitor owns private SDK providers and OTLP transport when the exporter is enabled.
+- The destination is configured through AIMonitor.
+- Exporters have distinct contracts: Kafka publishes AIMonitor events to topics, Prometheus exposes numerical aggregates for scraping, and OpenTelemetry converts enabled signals to OTLP.
+- A trace includes the root tool-execution span and nested `SpanEvent` spans.
+- `MCPEvent` and `SpanEvent` share an AIMonitor correlation key. The SDK creates OTel IDs and the exporter stores mappings between internal and OTel span IDs.
+- `args` and `result` are not exported by default because they may contain sensitive data.
+- `MetricEvent` uses `Counter.add`, `Histogram.record`, and the synchronous `Gauge.set`.
+- The synchronous Gauge is available from `opentelemetry-api`/`opentelemetry-sdk` 1.23.0 and became concrete in 1.24.0. The package minimum is 1.24.0 for Python below 3.14 and 1.35.0 for Python 3.14 or newer.
+- `MetricEvent.name` is the instrument name; `labels`, `environment`, and `version` become attributes; `metadata` is omitted. An optional `unit` is added to the common model with an empty default.
+- `LogEvent.message` is the body; `level` maps to standard OTel severity; `source`, `environment`, and `version` become attributes; `metadata` is omitted by default.
+- Trace, metric, and log signal flags default to `false`. Enabling the exporter alone does not enable a signal. If enabled but no signal is active, AIMonitor should warn and remain a no-op.
+- The initial version supports OTLP/HTTP protobuf only. There is no protocol selector or gRPC support. The default metric export interval is 60,000 ms.
+- `healthcheck()` evaluates local provider readiness. It does not claim that a remote backend received or stored data.
 
-### Decisiones aún abiertas
+### Open decisions
 
-1. Política para cardinalidad alta de labels/series. No se ha decidido añadir un límite propio ni expulsar series.
-2. Descripciones de instrumentos y validación de nombres/unidades.
-3. Como los `SpanEvent` pueden llegar antes que el `MCPEvent` raíz, falta decidir límites de tamaño/tiempo para eventos pendientes y el comportamiento ante padres ausentes o trazas incompletas.
-4. La conectividad y fallos de exportación remotos deben quedar diferenciados del readiness local; falta concretar cómo exponer fallos de exportación del SDK en los health snapshots.
+1. Define policy for high-cardinality labels and series.
+2. Define instrument descriptions and validate names and units.
+3. Bound pending `SpanEvent` values that arrive before a root `MCPEvent`, and define behavior for missing parents or incomplete traces.
+4. Separate local readiness from remote export failures and expose SDK delivery failures in health snapshots.
 
-### Compatibilidad de dependencias opcionales
+## 3. Optional dependency compatibility
 
-La compatibilidad tiene dos dimensiones distintas: versiones de Python y versiones de las bibliotecas opcionales que implementan cada integración. Que los tests pasen en varias versiones de Python con las dependencias más recientes no demuestra que funcionen con el mínimo declarado de cada paquete.
+Python and dependency versions are separate compatibility dimensions. Passing the latest dependencies on multiple Python versions does not prove minimum-dependency compatibility.
 
-[`pyproject.toml`](../pyproject.toml) declara límites inferiores, sin máximos, por extra: OpenTelemetry API/SDK y OTLP HTTP desde `1.24.0` en Python `<3.14` y desde `1.35.0` en Python `>=3.14`; `prometheus-client` desde `0.20.0`, `confluent-kafka` desde `2.13.0` y `aiosqlite` desde `0.21.0`. OTel 1.24 basta para las APIs usadas, pero limita Protobuf a `<5`; la combinación resultante con Protobuf 4 falla al importarse en Python 3.14. Por eso el `pyproject.toml` eleva el mínimo solo en ese runtime, no para todos los usuarios. Prometheus 0.20 devuelve servidor e hilo para shutdown, Kafka 2.13 expone `AIOProducer` bajo `confluent_kafka.aio`, y aiosqlite 0.21 incluye las operaciones usadas por el exporter. Son dependencias independientes: no todas son SDKs.
+`pyproject.toml` declares lower bounds:
 
-La CI debe comprobar la resolución más reciente y los mínimos soportados; la matriz de versiones de Python por sí sola no prueba los límites de las dependencias. Para cada exporter conviene validar al menos:
+- OpenTelemetry API/SDK/OTLP HTTP: 1.24.0 for Python below 3.14, 1.35.0 for Python 3.14 or newer.
+- `prometheus-client`: 0.20.0.
+- `confluent-kafka`: 2.13.0.
+- `aiosqlite`: 0.21.0.
 
-- La combinación de dependencias en los mínimos soportados.
-- La combinación más reciente compatible, para detectar cambios de upstream.
-- Las versiones de Python en las que esas combinaciones sean instalables, evitando asumir que hace falta ejecutar el producto cartesiano completo de todas las matrices.
+OTel 1.24 supports the used APIs but constrains Protobuf below 5. Protobuf 4 fails to import on Python 3.14. The minimum is therefore runtime-specific rather than universal.
 
-Para OpenTelemetry, API, SDK y exporter OTLP forman una familia versionada: la prueba del mínimo instala los tres en `1.24.0` en Python 3.10. La combinación OTel 1.24/Protobuf 4 no se prueba en Python 3.14 porque es incompatible con ese runtime; en cambio, los metadatos requieren OTel `>=1.35.0` en Python 3.14 y CI prueba allí la resolución latest.
+CI should test:
 
-La estrategia inicial de CI usa Python 3.10 con los mínimos exactos de todos los extras y Python 3.14 con la resolución más reciente. La matriz no repite una ejecución completa con todos los mínimos en Python 3.14: el mínimo de OTel depende del runtime y sus metadatos requieren `>=1.35.0` allí. Además, el smoke test de imports con dependencias recientes sigue ejecutándose en todas las versiones soportadas de Python.
+- Exact supported minimum combinations.
+- The latest compatible resolution.
+- Python versions in which each combination is installable.
 
-### Resolución junto con dependencias de la aplicación
+For OpenTelemetry, API, SDK, and HTTP exporter are a versioned family. Python 3.10 can test all three at 1.24.0. Python 3.14 tests latest and requires at least 1.35.0.
 
-Un provider privado aísla el estado y la configuración global de OpenTelemetry, pero **no aísla las versiones de los paquetes Python**: dentro de un entorno/interprete normalmente hay una única instalación de `opentelemetry-api`, `opentelemetry-sdk` y sus exporters. AIMonitor y la aplicación consumen esas mismas instalaciones.
+### Resolving with application dependencies
 
-Los extras de AIMonitor declaran los requisitos mínimos de la integración; no seleccionan ni fijan la versión final del entorno. Si la aplicación ya tiene una versión que satisface esos requisitos, el resolver puede conservarla. Si tiene una versión inferior, instalar el extra puede requerir una actualización. Al instalar en un entorno ya poblado, no se debe asumir que pip dejará intactos los paquetes existentes: puede cambiar versiones para satisfacer los requisitos. Si las restricciones declaradas son incompatibles, una resolución conjunta —por ejemplo, con lockfile o constraints— debe fallar explícitamente.
+A private provider isolates OTel provider state, not Python package versions. AIMonitor and the application share one installation of `opentelemetry-api`, `opentelemetry-sdk`, and exporters in an environment.
 
-Por eso:
+Extras declare minimum requirements; they do not select or pin the final environment version. An application lockfile should control resolution. Installing AIMonitor into an existing environment may update a package to satisfy requirements.
 
-- No ofrecer un selector de versión OTel en el YAML de AIMonitor: las versiones son dependencias del entorno, no una opción de configuración de runtime.
-- Mantener en `pyproject.toml` rangos compatibles (por ahora, mínimos sin pins exactos) y extras opcionales; no fijar versiones exactas en los metadatos de una librería.
-- Recomendar que la aplicación controle su resolución con un lockfile (por ejemplo, `uv.lock`) y revise el cambio del lock al añadir `ai-monitor-sdk[opentelemetry]`.
-- Si se necesita imponer versiones específicas, usar el lockfile o un archivo de constraints de la aplicación. Si esos pins chocan con el mínimo de AIMonitor, resolverlo explícitamente —no instalar ignorando dependencias— y, si no hay combinación compatible, separar entornos o acordar una política de compatibilidad distinta.
+Recommendations:
 
-El workflow de tests instala los mínimos exactos de cada extra mediante [minimum-exporter-dependencies.txt](../.github/constraints/minimum-exporter-dependencies.txt) en el job Python 3.10; otro job ejecuta la suite completa con la resolución más reciente en Python 3.14. Las workflows de publicación repiten esa comprobación antes de publicar, usando la versión Python configurada en `.python-version` para el caso latest. El job de build/publicación no instala extras opcionales porque no los necesita. Los constraints son solo para CI; no sustituyen el lockfile ni deciden qué versiones debe instalar una aplicación usuaria.
+- Do not expose an OTel package-version selector in YAML.
+- Keep compatible ranges in `pyproject.toml`; do not pin exact library versions in library metadata.
+- Recommend a lockfile such as `uv.lock`.
+- Use application constraints only when specific versions must be enforced.
+- If constraints conflict with AIMonitor minimums, resolve the conflict explicitly rather than suppressing dependency checks.
 
-## 3. Estado actual del repositorio
+## 4. Current repository state
 
-La implementación actual de [`OpenTelemetryExporter`](../src/aimonitor/exporters/opentelemetry.py):
+The existing [`OpenTelemetryExporter`](../src/aimonitor/exporters/opentelemetry.py):
 
-- Solo trabaja con `MCPEvent`.
-- Obtiene un tracer con `trace.get_tracer(self.service_name)`, por lo que depende del provider global.
-- No crea `TracerProvider`, `MeterProvider` ni `LoggerProvider`.
-- No configura procesadores/readers ni exporters OTLP.
-- No tiene `endpoint` en la configuración de [`OpenTelemetryExporterSettings`](../src/aimonitor/configs/config.py).
-- No procesa `MetricEvent` ni `LogEvent`.
+- Works only with `MCPEvent`.
+- Gets a tracer through `trace.get_tracer()`, so it depends on the global provider.
+- Does not create private `TracerProvider`, `MeterProvider`, or `LoggerProvider`.
+- Does not configure processors, readers, or OTLP exporters.
+- Does not have a configured OTel endpoint.
+- Does not process `MetricEvent` or `LogEvent`.
 
-La configuración existente ya incluye `service_name` y `span_prefix`, y [`bootstrap.py`](../src/aimonitor/bootstrap.py) los pasa al exporter. En el diseño objetivo, `service_name` será el atributo de recurso `service.name`; `span_prefix` seguirá controlando los nombres de los spans.
+The existing configuration includes `service_name` and `span_prefix`. `service_name` should become the `service.name` resource attribute; `span_prefix` should continue to control span names.
 
-El extra `opentelemetry` de [`pyproject.toml`](../pyproject.toml) contiene hoy `opentelemetry-api` y `opentelemetry-sdk`, pero no el paquete de exporters OTLP.
+The `opentelemetry` extra currently lacks the OTLP exporter package.
 
-El Gauge síncrono está soportado desde v1.23.0. La versión v1.24.0 también contiene la corrección que hace que `Meter.create_gauge()` no sea abstracto. El Gauge no obliga a mantener una caché de valores en AIMonitor; sí hay que cachear el handle del instrumento, como se hace con otros instrumentos.
-
-## 4. Configuración AIMonitor propuesta
-
-Forma ilustrativa; los nombres/defaults finales deben seguir las convenciones del modelo de configuración:
+## 5. Proposed AIMonitor configuration
 
 ```yaml
 exporters:
@@ -125,19 +124,23 @@ exporters:
     metrics_export_interval_ms: 60000
 ```
 
-- Los flags de señales en el ejemplo representan los defaults acordados: todos desactivados. Si se dejan así con `enabled: true`, AIMonitor avisa y el exporter no-op; el usuario activa explícitamente cada señal que quiera enviar.
-- `endpoint` es la dirección base del receptor OTLP, no la URL de su interfaz web. Con OTLP/HTTP, el exporter construye las rutas por señal, por ejemplo `/v1/traces`, `/v1/metrics` y `/v1/logs`.
-- El mismo endpoint puede recibir las tres señales, pero el SDK usa un provider y un procesador/reader para cada tipo.
-- `signals` permite habilitar señales independientemente. No se expone una opción `protocol` mientras el único protocolo soportado sea HTTP/protobuf.
-- Cabeceras de autenticación y secretos no deben guardarse en YAML sin protección; pueden añadirse después mediante configuración de entorno/secretos.
+The signal flags default to `false`. With `enabled: true` and no active signal, AIMonitor warns and does not export.
 
-## 5. Snippets para refactorizar el exporter
+The endpoint is the OTLP base address, not a web UI URL. OTLP/HTTP builds:
 
-Los siguientes snippets muestran las piezas y sus responsabilidades; no son una implementación completa. Las importaciones OTLP dependen del protocolo elegido.
+```text
+/v1/traces
+/v1/metrics
+/v1/logs
+```
 
-### 5.1 Dependencias opcionales
+Authentication headers and secrets must not be stored unprotected in YAML. Add environment or secret-provider support where needed.
 
-El extra de OpenTelemetry necesita el SDK y un exporter OTLP. Para HTTP/protobuf, la documentación oficial usa:
+## 6. Refactor implementation
+
+### Optional dependencies
+
+For OTLP/HTTP protobuf:
 
 ```toml
 [project.optional-dependencies]
@@ -151,12 +154,11 @@ opentelemetry = [
 ]
 ```
 
-Mantener estas dependencias opcionales conserva ligero el paquete base.
-El límite `>=1.24.0` incluye el Gauge síncrono y la corrección de `create_gauge()`. En Python 3.14 se exige `>=1.35.0` para evitar la combinación con Protobuf 4 incompatible con ese runtime. Usar la API pública `meter.create_gauge()`; no importar la clase de implementación interna `_Gauge`.
+Use the public `meter.create_gauge()` API rather than importing the private `_Gauge` implementation.
 
-### 5.2 Crear providers privados en `connect()`
+### Private trace provider
 
-No usar `trace.get_tracer()` global ni registrar los providers privados como globales. Guardar los handles para que `close()` pueda hacer flush y apagarlos.
+`connect()` must create private providers only for enabled signals:
 
 ```python
 from opentelemetry.sdk.resources import Resource, SERVICE_NAME
@@ -174,11 +176,11 @@ self._tracer_provider.add_span_processor(
 self.tracer = self._tracer_provider.get_tracer("aimonitor")
 ```
 
-Crear únicamente los providers correspondientes a las señales habilitadas. `connect()` debe ser idempotente y fallar explícitamente si falta una dependencia requerida o la configuración es inválida. El provider privado no debe registrarse como provider global ni reemplazar el de la aplicación.
+Do not register the private provider globally. Keep handles so `close()` can flush and shut down every provider. `connect()` should be idempotent and fail explicitly for missing dependencies or invalid configuration.
 
-### 5.3 Enrutar los tipos de señal
+### Signal routing
 
-`export()` puede hacer dispatch por modelo concreto, sin tratar cualquier señal como si tuviera los campos de `MCPEvent`:
+Dispatch concrete event types rather than assuming every signal has `MCPEvent` fields:
 
 ```python
 for event in event_batch:
@@ -194,11 +196,9 @@ for event in event_batch:
         continue
 ```
 
-No serializar `args` ni `result` como atributos por defecto. Aplicar una política explícita antes de añadir otros campos del evento como atributos OTel.
+Do not export `args` or `result` by default.
 
-### 5.4 Providers de métricas y logs
-
-OpenTelemetry separa los providers por señal. Este patrón es ilustrativo; crear los providers solo para señales habilitadas.
+### Metrics provider
 
 ```python
 from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
@@ -217,7 +217,9 @@ self._meter_provider = MeterProvider(
 self.meter = self._meter_provider.get_meter("aimonitor")
 ```
 
-El Gauge síncrono de la API Python tiene `set(amount, attributes=...)`. Cada actualización es una medida no aditiva; el SDK usa agregación de último valor al recolectar. Por tanto, el mapping conserva la semántica de AIMonitor sin una tabla de últimos valores administrada por el exporter:
+The synchronous Gauge uses `set(amount, attributes=...)`. Cache instruments by name, type, and unit; do not cache Gauge values in AIMonitor. Repeated sets update the last value for the matching attribute set in the OTel SDK.
+
+For counters and histograms:
 
 ```python
 attributes = {
@@ -225,7 +227,7 @@ attributes = {
     **({"environment": event.environment} if event.environment else {}),
     **({"version": event.version} if event.version else {}),
 }
-instrument = self._instrument_for(event)  # Cached by name, type, and unit.
+instrument = self._instrument_for(event)
 
 if event.metric_type == MetricType.COUNTER:
     instrument.add(event.value, attributes=attributes)
@@ -235,7 +237,7 @@ elif event.metric_type == MetricType.GAUGE:
     instrument.set(event.value, attributes=attributes)
 ```
 
-Crear y cachear el **instrumento** por nombre, tipo y unidad; no cachear el valor Gauge. Repetir `set()` con los mismos atributos actualiza el último valor de esa serie en el SDK. El `PeriodicExportingMetricReader` recolecta y envía métricas al intervalo configurado; no se hace una petición HTTP por cada `MetricEvent`. `ObservableGauge` es otra opción para valores que el SDK debe consultar mediante callback, no la correspondencia necesaria para estos eventos que ya traen el valor.
+### Logs provider
 
 ```python
 from opentelemetry._logs import SeverityNumber
@@ -249,88 +251,50 @@ self._logger_provider.add_log_record_processor(
     BatchLogRecordProcessor(OTLPLogExporter(endpoint=logs_endpoint))
 )
 self.otel_logger = self._logger_provider.get_logger("aimonitor")
-
-# Ejemplo dentro de _record_log(), tras acordar la conversión de severidad:
-self.otel_logger.emit(
-    severity_number=SeverityNumber.INFO,
-    severity_text=event.level.value,
-    body=event.message,
-    attributes={"source": event.source},
-)
 ```
 
-Mapear los niveles `CRITICAL→FATAL`, `ERROR→ERROR`, `WARNING→WARN`, `INFO→INFO` y `DEBUG→DEBUG`. No incluir labels de alta cardinalidad sin una decisión explícita.
+### IDs and parent-child correlation
 
-### 5.5 IDs y relación padre/hijo
+The existing `Trace` IDs include operation names and cannot be passed directly as OTel IDs. Preserve them as internal correlation keys and let the OTel SDK generate valid OTel IDs.
 
-Los IDs actuales generados por `Trace` incluyen nombres de operación y no pueden pasarse directamente como IDs de OpenTelemetry. No es necesario convertirlos en IDs OTel: se pueden conservar como claves internas de correlación y dejar que el SDK genere IDs OTel válidos.
+The common event contract should add `trace_id` to `MCPEvent`; `SpanEvent` already has it.
+
+- Top-level `SpanEvent` values (`parent_id is None`) attach to the root `MCPEvent` span.
+- Deeper spans attach to the `SpanEvent` identified by `parent_id`.
+- Do not use `metadata` as a replacement for typed correlation fields.
+
+The exporter should allow events for a trace to be pending until the root arrives, then process the root before its children. Bound pending memory and reject or age out incomplete traces. `SpanEvent` values may arrive before the root because nested context managers dispatch on close.
+
+### Closing the pipeline
+
+Batch processors may retain pending SDK work. `close()` should flush and shut down every created provider. Run synchronous SDK operations outside the event loop.
 
 ```python
-# Compartir este valor entre el MCPEvent raíz y sus SpanEvent.
-trace_key = trace.trace_id
+async def close(self) -> None:
+    await asyncio.to_thread(self._tracer_provider.shutdown)
+    if self._meter_provider:
+        await asyncio.to_thread(self._meter_provider.shutdown)
+    if self._logger_provider:
+        await asyncio.to_thread(self._logger_provider.shutdown)
 ```
 
-El contrato de eventos debe añadir `trace_id` a `MCPEvent`; `SpanEvent` ya lo tiene. Los `SpanEvent` de nivel superior (`parent_id is None`) cuelgan del span raíz `MCPEvent`. Los spans más profundos cuelgan del `SpanEvent` indicado por `parent_id`. No usar `metadata` como sustituto de campos de correlación tipados.
+Make close idempotent and safe during partial initialization.
 
-```python
-# El SDK crea el ID OTel del span raíz.
-root_span = self.tracer.start_span(root_name, start_time=root_start_ns)
-root_otel_context = root_span.get_span_context()
-root_span.end(end_time=root_end_ns)
+## 7. Suggested implementation stages
 
-# Para cada SpanEvent hijo, usar el contexto OTel del padre ya creado.
-parent_otel_context = (
-    root_otel_context
-    if event.parent_id is None
-    else otel_context_by_internal_span_id[event.parent_id]
-)
-parent_context = set_span_in_context(NonRecordingSpan(parent_otel_context))
-span = self.tracer.start_span(name, context=parent_context, start_time=start_ns)
-otel_context_by_internal_span_id[event.span_id] = span.get_span_context()
-try:
-    span.set_attribute("mcp.status", event.status.value)
-finally:
-    span.end(end_time=end_ns)
-```
+1. Add private trace and OTLP dependencies.
+2. Create private providers and resource attributes.
+3. Add root and nested span export with pending-event handling.
+4. Add metrics with counters, histograms, and gauges.
+5. Add logs and severity mapping.
+6. Implement flush and shutdown.
+7. Add healthchecks for local providers.
+8. Add minimum/latest dependency CI coverage.
+9. Add integration coverage using the OTel in-memory test exporters.
 
-El snippet presupone que los eventos de una traza ya están agrupados y ordenados por dependencia. En el flujo actual los `SpanEvent` se despachan al cerrar cada context manager y el `MCPEvent` llega al terminar la tool; por eso el exporter probablemente tendrá que mantener eventos pendientes por `trace_id` hasta recibir la raíz, y después procesar la raíz antes que los hijos. Validar padres ausentes y evitar dejar trazas incompletas en memoria indefinidamente.
+## 8. Official references
 
-### 5.6 Cerrar correctamente el pipeline
-
-Los procesadores por lotes pueden tener datos pendientes en workers del SDK. `close()` debe hacer flush y shutdown de cada provider creado, ejecutando las operaciones síncronas fuera del event loop:
-
-```python
-for provider in self._providers:
-    await asyncio.to_thread(provider.force_flush)
-    await asyncio.to_thread(provider.shutdown)
-```
-
-Mantener separados el resultado de `recover()` y el healthcheck posterior: recuperar o reconstruir un provider no demuestra que el backend esté recibiendo datos.
-
-## 6. Etapas sugeridas
-
-1. Añadir endpoint y configuración de señales al modelo YAML/JSON y probar su propagación por `bootstrap`.
-2. Añadir el OTLP exporter como dependencia opcional.
-3. Implementar providers privados y su lifecycle idempotente.
-4. Extender el contrato de eventos para compartir la clave de correlación raíz/hijo y conservar la duración.
-5. Implementar y probar el flujo de trazas con un exporter OTel en memoria, sin backend externo.
-6. Implementar los mappings acordados de métricas y logs y probarlos con readers/exporters en memoria.
-7. Añadir una prueba opcional con un Collector/backend OTLP real para comprobar transporte, sin hacerla requisito para la suite unitaria.
-
-## 7. Referencias oficiales
-
-- [OpenTelemetry Python: exporters](https://opentelemetry.io/docs/languages/python/exporters/) — configuración de OTLP, traces, metrics, Prometheus y Collector.
-- [OpenTelemetry Python: instrumentation](https://opentelemetry.io/docs/languages/python/instrumentation/) — generación de telemetría desde Python.
-- [OTLP exporter configuration](https://opentelemetry.io/docs/languages/sdk-configuration/otlp-exporter/) — endpoints, protocolos y variables de configuración.
-- [OTLP specification](https://opentelemetry.io/docs/specs/otlp/) — protocolo de transporte.
-- [Trace API specification](https://opentelemetry.io/docs/specs/otel/trace/api/) — spans, contexto e IDs.
-- [Metrics API specification](https://opentelemetry.io/docs/specs/otel/metrics/api/) — instrumentos y observaciones.
-- [OpenTelemetry Python metrics API](https://opentelemetry-python.readthedocs.io/en/stable/api/metrics.html) — `Gauge.set`, `Counter.add` y `Histogram.record`.
-- [Metrics SDK specification](https://opentelemetry.io/docs/specs/otel/metrics/sdk/) — agregaciones SDK, incluida last-value aggregation.
-- [OpenTelemetry Python v1.23.0 release](https://github.com/open-telemetry/opentelemetry-python/releases/tag/v1.23.0) — incluye “Add Synchronous Gauge instrument”.
-- [OpenTelemetry Python v1.24.0 release](https://github.com/open-telemetry/opentelemetry-python/releases/tag/v1.24.0) — hace `create_gauge()` no abstracto.
-- [OpenTelemetry Python v1.24.0 SDK Gauge implementation](https://github.com/open-telemetry/opentelemetry-python/blob/v1.24.0/opentelemetry-sdk/src/opentelemetry/sdk/metrics/_internal/instrument.py) — implementación del Gauge síncrono.
-- [OpenTelemetry Python v1.24.0 Meter implementation](https://github.com/open-telemetry/opentelemetry-python/blob/v1.24.0/opentelemetry-sdk/src/opentelemetry/sdk/metrics/_internal/__init__.py) — implementación de `Meter.create_gauge()`.
-- [Logs API specification](https://opentelemetry.io/docs/specs/otel/logs/api/) — log records y severidad.
-- [Logs SDK specification](https://opentelemetry.io/docs/specs/otel/logs/sdk/) — providers y processors de logs.
-- [OpenTelemetry Collector](https://opentelemetry.io/docs/collector/) — recibir, procesar y reenviar señales.
+- OpenTelemetry Python SDK and API.
+- OTLP/HTTP exporter.
+- OpenTelemetry resource and attribute conventions.
+- OTel metrics aggregation and periodic reader behavior.

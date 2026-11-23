@@ -66,7 +66,7 @@ AIMonitor comes with a set of programmed exporters:
 | ------------------------------- | ------------------------------- | ---------------------------- |
 | **FileExporter**          | JSONL file output with rotation | ✅ Stable                    |
 | **SQLiteExporter**        | Local database storage          | ✅ Stable                    |
-| **PrometheusExporter**    | Prometheus metrics endpoint     | ⚠️ On development         |
+| **PrometheusExporter**    | Prometheus metrics endpoint     | ✅ Stable                    |
 | **OpenTelemetryExporter** | OTel span export                | ✅ Stable                    |
 | **WebhookExporter**       | HTTP endpoint POST              | ✅ Stable                    |
 | **KafkaExporter**         | Kafka topic producer            | ✅ Stable                   |
@@ -198,7 +198,12 @@ await registry.dispatch(MCPEvent(tool_name="manual_event"))
 - **[Usage Guide](docs/usage.md)** — Configuration, exporters, and examples
 - **[Architecture](docs/architecture.md)** — Core components and design
 - **[Installation](docs/installation.md)** — Dependency management
+- **[Healthchecks](docs/healthchecks.md)** — Liveness, readiness, and recovery
+- **[Exporter Guide](docs/exporters.md)** — Built-in exporter contracts
 - **[Contributing](docs/CONTRIBUTING.md)** — Development workflow
+
+Design reports for package layout, configuration, exceptions, healthchecks,
+the roadmap, Kafka, and OpenTelemetry are available under [reports/](reports/).
 
 ## 🧪 Testing
 

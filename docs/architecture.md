@@ -9,11 +9,14 @@ AIMonitor is built as a modular monitoring framework for MCP workflows, with a c
 
 The repository is organized into:
 
-- `core/`: event model, registry and decorators for tool monitoring
-- `exporters/`: output adapters for console, file, SQLite, Webhook/HTTP, Prometheus, OpenTelemetry, and Kafka
-- `telemetry/`: internal SDK telemetry manager and OpenTelemetry integration
-- `configs/`: settings model and environment handling
+- `src/aimonitor/core/`: event model, registry, and decorators for tool monitoring
+- `src/aimonitor/exporters/`: output adapters for console, file, SQLite, Webhook/HTTP, Prometheus, OpenTelemetry, and Kafka
+- `src/aimonitor/telemetry/`: internal SDK telemetry manager and OpenTelemetry integration
+- `src/aimonitor/configs/`: settings model and environment handling
 - `tests/`: unit and integration tests
+
+Public imports use the `aimonitor` namespace, for example
+`aimonitor.core.registry` and `aimonitor.exporters.base`.
 
 ## Core components
 
@@ -66,8 +69,12 @@ See [built-in exporters](./exporters.md) for the purpose, supported signals, and
 
 ### `OpenTelemetryExporter`
 
-Converts `MCPEvent` objects into OpenTelemetry spans without coupling them to internal SDK telemetry.
-Each span's start and end times are derived from the event timestamp and execution duration.
+Exports enabled AIMonitor signals over OTLP/HTTP using private OpenTelemetry providers.
+It represents `MCPEvent` and nested `SpanEvent` values as correlated spans,
+records `MetricEvent` values with counters, histograms, or gauges, and exports
+`LogEvent` values as OTel log records. It must not replace application-global
+OpenTelemetry providers. Sensitive event fields such as `args`, `result`, and
+metadata are not exported by default.
 
 ## Internal telemetry vs event export
 
