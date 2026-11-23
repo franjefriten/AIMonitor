@@ -118,7 +118,10 @@ async def test_opentelemetry_exporter_maps_metrics_and_logs(monkeypatch):
         reason="The opentelemetry extra is required for this integration test",
     )
     from opentelemetry.exporter.otlp.proto.http import _log_exporter, metric_exporter
-    from opentelemetry.sdk._logs.export import InMemoryLogRecordExporter
+    try:
+        from opentelemetry.sdk._logs.export import InMemoryLogRecordExporter
+    except ImportError:
+        from opentelemetry.sdk._logs.export import InMemoryLogExporter as InMemoryLogRecordExporter
     from opentelemetry.sdk.metrics.export import InMemoryMetricReader
     import opentelemetry.sdk.metrics.export as sdk_metric_export
 

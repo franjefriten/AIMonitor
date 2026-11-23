@@ -79,6 +79,18 @@ class OptionalDependencyMissingError(AIMonitorError, ImportError):
     def __str__(self):
         return f"OptionalDepencyMissingError: {self.dependency_name}"
 
+
+class OpenTelemetryCompatibilityError(AIMonitorError, ImportError):
+    """Raised when the installed OpenTelemetry SDK is incompatible with Python."""
+
+    def __init__(self, installed_version: str):
+        self.installed_version = installed_version
+        super().__init__(
+            f"OpenTelemetry SDK {installed_version} is incompatible with Python 3.14; "
+            "AIMonitor requires opentelemetry-sdk>=1.35.0 on Python 3.14."
+        )
+
+
 # Signals
 class SignalTypeNotFound(AIMonitorError, ValueError):
     """

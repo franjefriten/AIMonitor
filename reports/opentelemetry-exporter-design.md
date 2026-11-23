@@ -44,7 +44,7 @@ Decisiones ya acordadas:
 - `MCPEvent` y sus `SpanEvent` deben compartir una clave de correlación AIMonitor. El SDK genera los IDs OTel; el exporter conserva un mapping entre IDs internos de span y contextos OTel.
 - `args` y `result` no se exportan por defecto; pueden contener datos sensibles.
 - `MetricEvent`: `Counter.add`, `Histogram.record` y Gauge síncrono `set`. El SDK conserva la última observación del Gauge por conjunto de atributos; no hace falta una caché de valores Gauge propia.
-- OpenTelemetry Python añadió el Gauge síncrono en `opentelemetry-api`/`opentelemetry-sdk` **v1.23.0**. El mínimo actual de AIMonitor, `>=1.29.0`, ya lo incluye.
+- OpenTelemetry Python añadió el Gauge síncrono en `opentelemetry-api`/`opentelemetry-sdk` **v1.23.0** y corrigió en **v1.24.0** que `create_gauge()` no fuera abstracto. El mínimo es `>=1.24.0` en Python `<3.14`; para Python `>=3.14` es `>=1.35.0`, porque OTel 1.24 limita Protobuf a `<5` y Protobuf 4 falla al importarse en Python 3.14.
 - `MetricEvent.name` se usa como nombre del instrumento; `labels`, `environment` y `version` se usan como atributos. `metadata` se omite. Se añade `unit` opcional al modelo común, con default vacío.
 - `LogEvent.message` es el body; `level` se convierte a severidad OTel estándar; `source`, `environment` y `version` son atributos. `metadata` se omite por defecto.
 - `enabled` tiene toggles independientes `traces`, `metrics` y `logs`, todos `false` por defecto. Habilitar el exporter no activa señales implícitamente. Si el exporter está habilitado pero no hay señales activas, AIMonitor emite un warning y permite el no-op.
@@ -58,23 +58,37 @@ Decisiones ya acordadas:
 2. Descripciones de instrumentos y validación de nombres/unidades.
 3. Como los `SpanEvent` pueden llegar antes que el `MCPEvent` raíz, falta decidir límites de tamaño/tiempo para eventos pendientes y el comportamiento ante padres ausentes o trazas incompletas.
 4. La conectividad y fallos de exportación remotos deben quedar diferenciados del readiness local; falta concretar cómo exponer fallos de exportación del SDK en los health snapshots.
-5. Política general de compatibilidad por versiones de dependencias opcionales: fijar los mínimos soportados de cada exporter y decidir qué combinaciones de versiones de Python y dependencias se validarán en CI.
 
 ### Compatibilidad de dependencias opcionales
 
 La compatibilidad tiene dos dimensiones distintas: versiones de Python y versiones de las bibliotecas opcionales que implementan cada integración. Que los tests pasen en varias versiones de Python con las dependencias más recientes no demuestra que funcionen con el mínimo declarado de cada paquete.
 
-Actualmente, [`pyproject.toml`](../pyproject.toml) declara límites inferiores, sin máximos, por extra: OpenTelemetry API/SDK y OTLP HTTP desde `1.29.0`, `prometheus-client` desde `0.26.0`, `confluent-kafka` desde `2.15.0` y `aiosqlite` desde `0.22.1`. Son dependencias independientes: no todas son SDKs, pero cada exporter debe tener un rango de compatibilidad explícito.
+[`pyproject.toml`](../pyproject.toml) declara límites inferiores, sin máximos, por extra: OpenTelemetry API/SDK y OTLP HTTP desde `1.24.0` en Python `<3.14` y desde `1.35.0` en Python `>=3.14`; `prometheus-client` desde `0.20.0`, `confluent-kafka` desde `2.13.0` y `aiosqlite` desde `0.21.0`. OTel 1.24 basta para las APIs usadas, pero limita Protobuf a `<5`; la combinación resultante con Protobuf 4 falla al importarse en Python 3.14. Por eso el `pyproject.toml` eleva el mínimo solo en ese runtime, no para todos los usuarios. Prometheus 0.20 devuelve servidor e hilo para shutdown, Kafka 2.13 expone `AIOProducer` bajo `confluent_kafka.aio`, y aiosqlite 0.21 incluye las operaciones usadas por el exporter. Son dependencias independientes: no todas son SDKs.
 
-La CI actual instala la resolución más reciente permitida por esos límites; la matriz de versiones de Python no prueba las versiones mínimas de las dependencias. Para cada exporter conviene validar al menos:
+La CI debe comprobar la resolución más reciente y los mínimos soportados; la matriz de versiones de Python por sí sola no prueba los límites de las dependencias. Para cada exporter conviene validar al menos:
 
 - La combinación de dependencias en los mínimos soportados.
 - La combinación más reciente compatible, para detectar cambios de upstream.
 - Las versiones de Python en las que esas combinaciones sean instalables, evitando asumir que hace falta ejecutar el producto cartesiano completo de todas las matrices.
 
-Para OpenTelemetry, API, SDK y exporter OTLP forman una familia versionada: la prueba del mínimo debe instalar versiones compatibles entre sí. El Gauge síncrono existe desde `1.23.0`, pero AIMonitor declara `>=1.29.0`; el soporte declarado y probado por AIMonitor es el que determina el compromiso de compatibilidad, no la primera versión en que apareció la API.
+Para OpenTelemetry, API, SDK y exporter OTLP forman una familia versionada: la prueba del mínimo instala los tres en `1.24.0` en Python 3.10. La combinación OTel 1.24/Protobuf 4 no se prueba en Python 3.14 porque es incompatible con ese runtime; en cambio, los metadatos requieren OTel `>=1.35.0` en Python 3.14 y CI prueba allí la resolución latest.
 
-Queda por decidir si se mantienen los mínimos actuales o se elevan, y qué estrategia de CI (por ejemplo, jobs de mínimos y latest por extra) ofrece cobertura suficiente sin multiplicar innecesariamente el coste de la matriz.
+La estrategia inicial de CI usa Python 3.10 con los mínimos exactos de todos los extras y Python 3.14 con la resolución más reciente. La matriz no repite una ejecución completa con todos los mínimos en Python 3.14: el mínimo de OTel depende del runtime y sus metadatos requieren `>=1.35.0` allí. Además, el smoke test de imports con dependencias recientes sigue ejecutándose en todas las versiones soportadas de Python.
+
+### Resolución junto con dependencias de la aplicación
+
+Un provider privado aísla el estado y la configuración global de OpenTelemetry, pero **no aísla las versiones de los paquetes Python**: dentro de un entorno/interprete normalmente hay una única instalación de `opentelemetry-api`, `opentelemetry-sdk` y sus exporters. AIMonitor y la aplicación consumen esas mismas instalaciones.
+
+Los extras de AIMonitor declaran los requisitos mínimos de la integración; no seleccionan ni fijan la versión final del entorno. Si la aplicación ya tiene una versión que satisface esos requisitos, el resolver puede conservarla. Si tiene una versión inferior, instalar el extra puede requerir una actualización. Al instalar en un entorno ya poblado, no se debe asumir que pip dejará intactos los paquetes existentes: puede cambiar versiones para satisfacer los requisitos. Si las restricciones declaradas son incompatibles, una resolución conjunta —por ejemplo, con lockfile o constraints— debe fallar explícitamente.
+
+Por eso:
+
+- No ofrecer un selector de versión OTel en el YAML de AIMonitor: las versiones son dependencias del entorno, no una opción de configuración de runtime.
+- Mantener en `pyproject.toml` rangos compatibles (por ahora, mínimos sin pins exactos) y extras opcionales; no fijar versiones exactas en los metadatos de una librería.
+- Recomendar que la aplicación controle su resolución con un lockfile (por ejemplo, `uv.lock`) y revise el cambio del lock al añadir `ai-monitor-sdk[opentelemetry]`.
+- Si se necesita imponer versiones específicas, usar el lockfile o un archivo de constraints de la aplicación. Si esos pins chocan con el mínimo de AIMonitor, resolverlo explícitamente —no instalar ignorando dependencias— y, si no hay combinación compatible, separar entornos o acordar una política de compatibilidad distinta.
+
+El workflow de tests instala los mínimos exactos de cada extra mediante [minimum-exporter-dependencies.txt](../.github/constraints/minimum-exporter-dependencies.txt) en el job Python 3.10; otro job ejecuta la suite completa con la resolución más reciente en Python 3.14. Las workflows de publicación repiten esa comprobación antes de publicar, usando la versión Python configurada en `.python-version` para el caso latest. El job de build/publicación no instala extras opcionales porque no los necesita. Los constraints son solo para CI; no sustituyen el lockfile ni deciden qué versiones debe instalar una aplicación usuaria.
 
 ## 3. Estado actual del repositorio
 
@@ -91,7 +105,7 @@ La configuración existente ya incluye `service_name` y `span_prefix`, y [`boots
 
 El extra `opentelemetry` de [`pyproject.toml`](../pyproject.toml) contiene hoy `opentelemetry-api` y `opentelemetry-sdk`, pero no el paquete de exporters OTLP.
 
-El Gauge síncrono está soportado desde v1.23.0. El código de la etiqueta v1.29.0 —el mínimo actual declarado por AIMonitor— contiene tanto `Meter.create_gauge()` como el SDK Gauge con `set()`. El Gauge no obliga a mantener una caché de valores en AIMonitor; sí hay que cachear el handle del instrumento, como se hace con otros instrumentos.
+El Gauge síncrono está soportado desde v1.23.0. La versión v1.24.0 también contiene la corrección que hace que `Meter.create_gauge()` no sea abstracto. El Gauge no obliga a mantener una caché de valores en AIMonitor; sí hay que cachear el handle del instrumento, como se hace con otros instrumentos.
 
 ## 4. Configuración AIMonitor propuesta
 
@@ -128,14 +142,17 @@ El extra de OpenTelemetry necesita el SDK y un exporter OTLP. Para HTTP/protobuf
 ```toml
 [project.optional-dependencies]
 opentelemetry = [
-    "opentelemetry-api>=1.29.0",
-    "opentelemetry-sdk>=1.29.0",
-    "opentelemetry-exporter-otlp-proto-http>=1.29.0",
+    "opentelemetry-api>=1.24.0; python_version < '3.14'",
+    "opentelemetry-sdk>=1.24.0; python_version < '3.14'",
+    "opentelemetry-exporter-otlp-proto-http>=1.24.0; python_version < '3.14'",
+    "opentelemetry-api>=1.35.0; python_version >= '3.14'",
+    "opentelemetry-sdk>=1.35.0; python_version >= '3.14'",
+    "opentelemetry-exporter-otlp-proto-http>=1.35.0; python_version >= '3.14'",
 ]
 ```
 
 Mantener estas dependencias opcionales conserva ligero el paquete base.
-El límite `>=1.29.0` ya incluye el Gauge síncrono, disponible desde v1.23.0. Usar la API pública `meter.create_gauge()`; no importar la clase de implementación interna `_Gauge`.
+El límite `>=1.24.0` incluye el Gauge síncrono y la corrección de `create_gauge()`. En Python 3.14 se exige `>=1.35.0` para evitar la combinación con Protobuf 4 incompatible con ese runtime. Usar la API pública `meter.create_gauge()`; no importar la clase de implementación interna `_Gauge`.
 
 ### 5.2 Crear providers privados en `connect()`
 
@@ -311,8 +328,9 @@ Mantener separados el resultado de `recover()` y el healthcheck posterior: recup
 - [OpenTelemetry Python metrics API](https://opentelemetry-python.readthedocs.io/en/stable/api/metrics.html) — `Gauge.set`, `Counter.add` y `Histogram.record`.
 - [Metrics SDK specification](https://opentelemetry.io/docs/specs/otel/metrics/sdk/) — agregaciones SDK, incluida last-value aggregation.
 - [OpenTelemetry Python v1.23.0 release](https://github.com/open-telemetry/opentelemetry-python/releases/tag/v1.23.0) — incluye “Add Synchronous Gauge instrument”.
-- [OpenTelemetry Python v1.29.0 SDK Gauge implementation](https://github.com/open-telemetry/opentelemetry-python/blob/v1.29.0/opentelemetry-sdk/src/opentelemetry/sdk/metrics/_internal/instrument.py) — `Gauge.set()` consume una medida.
-- [OpenTelemetry Python v1.29.0 Meter implementation](https://github.com/open-telemetry/opentelemetry-python/blob/v1.29.0/opentelemetry-sdk/src/opentelemetry/sdk/metrics/_internal/__init__.py) — `Meter.create_gauge()` crea el instrumento del SDK.
+- [OpenTelemetry Python v1.24.0 release](https://github.com/open-telemetry/opentelemetry-python/releases/tag/v1.24.0) — hace `create_gauge()` no abstracto.
+- [OpenTelemetry Python v1.24.0 SDK Gauge implementation](https://github.com/open-telemetry/opentelemetry-python/blob/v1.24.0/opentelemetry-sdk/src/opentelemetry/sdk/metrics/_internal/instrument.py) — implementación del Gauge síncrono.
+- [OpenTelemetry Python v1.24.0 Meter implementation](https://github.com/open-telemetry/opentelemetry-python/blob/v1.24.0/opentelemetry-sdk/src/opentelemetry/sdk/metrics/_internal/__init__.py) — implementación de `Meter.create_gauge()`.
 - [Logs API specification](https://opentelemetry.io/docs/specs/otel/logs/api/) — log records y severidad.
 - [Logs SDK specification](https://opentelemetry.io/docs/specs/otel/logs/sdk/) — providers y processors de logs.
 - [OpenTelemetry Collector](https://opentelemetry.io/docs/collector/) — recibir, procesar y reenviar señales.

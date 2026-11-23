@@ -1,7 +1,7 @@
 from enum import Enum
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Literal, Optional, Self
+from typing import Any, Literal, Optional
 from urllib import parse
 import socket
 
@@ -10,6 +10,7 @@ import json
 import yaml
 from pydantic import AnyUrl, BaseModel, Field, FilePath, HttpUrl, PrivateAttr, field_validator, AliasChoices, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing_extensions import Self
 
 import logging
 from logging import getLogger, config

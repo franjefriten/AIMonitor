@@ -22,18 +22,21 @@ license = "MIT"
 [project.optional-dependencies]
 # Integrations for certain exporters
 opentelemetry = [
-    "opentelemetry-api>=1.29.0",
-    "opentelemetry-sdk>=1.29.0",
-    "opentelemetry-exporter-otlp-proto-http>=1.29.0",
+    "opentelemetry-api>=1.24.0; python_version < '3.14'",
+    "opentelemetry-sdk>=1.24.0; python_version < '3.14'",
+    "opentelemetry-exporter-otlp-proto-http>=1.24.0; python_version < '3.14'",
+    "opentelemetry-api>=1.35.0; python_version >= '3.14'",
+    "opentelemetry-sdk>=1.35.0; python_version >= '3.14'",
+    "opentelemetry-exporter-otlp-proto-http>=1.35.0; python_version >= '3.14'",
 ]
 sqlite = [
-    "aiosqlite>=0.22.1",
+    "aiosqlite>=0.21.0",
 ]
 prometheus = [
-    "prometheus-client>=0.26.0",
+    "prometheus-client>=0.20.0",
 ]
 kafka = [
-    "confluent-kafka>=2.15.0",
+    "confluent-kafka>=2.13.0",
 ]
 
 

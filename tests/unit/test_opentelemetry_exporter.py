@@ -7,6 +7,7 @@ import aimonitor.exporters.opentelemetry as otel_exporter_module
 from aimonitor.core.event import SpanEvent
 from aimonitor.core.exceptions import (
     ExporterConfigurationError,
+    OpenTelemetryCompatibilityError,
     OptionalDependencyMissingError,
 )
 from aimonitor.exporters.opentelemetry import OpenTelemetryExporter
@@ -56,6 +57,18 @@ def test_opentelemetry_exporter_requires_otlp_http_dependency():
     with patch("builtins.__import__", side_effect=fake_import):
         with pytest.raises(OptionalDependencyMissingError):
             asyncio.run(exporter.connect())
+
+
+def test_opentelemetry_exporter_rejects_incompatible_sdk_on_python_314(monkeypatch):
+    exporter = OpenTelemetryExporter(enabled=True, traces_enabled=True)
+    monkeypatch.setattr(otel_exporter_module, "version_info", (3, 14, 0))
+    monkeypatch.setattr(otel_exporter_module, "version", lambda _: "1.24.0")
+
+    with pytest.raises(
+        OpenTelemetryCompatibilityError,
+        match="requires opentelemetry-sdk>=1.35.0",
+    ):
+        asyncio.run(exporter.connect())
 
 
 def test_pending_spans_are_bounded_and_oldest_are_discarded(monkeypatch):

@@ -1,8 +1,11 @@
 import asyncio
 import os
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from importlib.metadata import PackageNotFoundError, version
+from sys import version_info
 from typing import Any
 from urllib.parse import urlparse
 
@@ -17,7 +20,11 @@ from aimonitor.core.event import (
     SpanEvent,
     Status,
 )
-from aimonitor.core.exceptions import ExporterConfigurationError, OptionalDependencyMissingError
+from aimonitor.core.exceptions import (
+    ExporterConfigurationError,
+    OpenTelemetryCompatibilityError,
+    OptionalDependencyMissingError,
+)
 from aimonitor.exporters.base import BaseExporter
 from aimonitor.utils.logger import logger
 
@@ -71,6 +78,7 @@ class OpenTelemetryExporter(BaseExporter):
         self._tracer_provider = None
         self._meter_provider = None
         self._logger_provider = None
+        self._log_record_class = None
         self._connected = False
         self._cleanup_task: asyncio.Task | None = None
         self._metric_instruments: dict[tuple[str, MetricType, str], Any] = {}
@@ -113,12 +121,23 @@ class OpenTelemetryExporter(BaseExporter):
                 "metrics_export_interval_ms must be greater than zero."
             )
 
+        if version_info >= (3, 14):
+            try:
+                sdk_version = version("opentelemetry-sdk")
+            except PackageNotFoundError:
+                pass
+            else:
+                release = re.match(r"^(\d+)\.(\d+)\.(\d+)", sdk_version)
+                if release is None or tuple(map(int, release.groups())) < (1, 35, 0):
+                    raise OpenTelemetryCompatibilityError(sdk_version)
+
         try:
             from opentelemetry import context as otel_context
             from opentelemetry._logs import SeverityNumber
             from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
             from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
             from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+            from opentelemetry.sdk import _logs as sdk_logs
             from opentelemetry.sdk._logs import LoggerProvider
             from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
             from opentelemetry.sdk.metrics import MeterProvider
@@ -143,6 +162,7 @@ class OpenTelemetryExporter(BaseExporter):
         self._otel_status = OTelStatus
         self._status_code = StatusCode
         self._severity_number = SeverityNumber
+        self._log_record_class = getattr(sdk_logs, "LogRecord", None)
 
         resource = Resource.create({"service.name": self.service_name})
         base_endpoint = self.endpoint.rstrip("/")
@@ -420,12 +440,22 @@ class OpenTelemetryExporter(BaseExporter):
         if event.version:
             attributes["version"] = event.version
 
-        self.otel_logger.emit(
-            severity_number=severity,
-            severity_text=event.level.value,
-            body=event.message,
-            attributes=attributes,
-        )
+        if self._log_record_class is not None:
+            log_record = self._log_record_class(
+                severity_number=severity,
+                severity_text=event.level.value,
+                body=event.message,
+                resource=self._logger_provider.resource,
+                attributes=attributes,
+            )
+            self.otel_logger.emit(log_record)
+        else:
+            self.otel_logger.emit(
+                severity_number=severity,
+                severity_text=event.level.value,
+                body=event.message,
+                attributes=attributes,
+            )
 
     def _set_span_attributes(
         self,
@@ -466,6 +496,7 @@ class OpenTelemetryExporter(BaseExporter):
         self._tracer_provider = None
         self._meter_provider = None
         self._logger_provider = None
+        self._log_record_class = None
         self.tracer = None
         self.meter = None
         self.otel_logger = None
