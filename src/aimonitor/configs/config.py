@@ -247,10 +247,19 @@ class SQLiteExporterSettings(BaseModel):
     uri: Optional[Path] = Field(default=None)
 
 
+class OpenTelemetrySignalsSettings(BaseModel):
+    traces: bool = Field(default=False)
+    metrics: bool = Field(default=False)
+    logs: bool = Field(default=False)
+
+
 class OpenTelemetryExporterSettings(BaseModel):
     enabled: bool = Field(default=False)
     service_name: str = Field(default="aimonitor-mcp")
     span_prefix: str = Field(default="mcp.tool")
+    endpoint: str = Field(default="http://localhost:4318")
+    signals: OpenTelemetrySignalsSettings = Field(default_factory=OpenTelemetrySignalsSettings)
+    metrics_export_interval_ms: int = Field(default=60_000, ge=1)
 
 
 class ExporterSettings(BaseModel):
@@ -602,6 +611,11 @@ class AIMonitorSettings(BaseSettings):
         description="Span name prefix for monitored MCP tool events",
         validation_alias=AliasChoices(*_OTEL_MCP_SPAN_PREFIX_ALIASES),
     )
+    otel_endpoint: str = Field(default="http://localhost:4318")
+    otel_traces_enabled: bool = Field(default=False)
+    otel_metrics_enabled: bool = Field(default=False)
+    otel_logs_enabled: bool = Field(default=False)
+    otel_metrics_export_interval_ms: int = Field(default=60_000, ge=1)
 
 
     async def load_from_yaml(self, yaml_file_path: str | Path) -> None:
@@ -798,6 +812,16 @@ class AIMonitorSettings(BaseSettings):
                 otel_span_prefix = otel.get("span_prefix")
                 if otel_span_prefix is not None:
                     flattened_data["otel_mcp_span_prefix"] = otel_span_prefix
+                otel_endpoint = otel.get("endpoint")
+                if otel_endpoint is not None:
+                    flattened_data["otel_endpoint"] = otel_endpoint
+                otel_signals = otel.get("signals", {})
+                for signal_name in ("traces", "metrics", "logs"):
+                    if signal_name in otel_signals:
+                        flattened_data[f"otel_{signal_name}_enabled"] = otel_signals[signal_name]
+                otel_metrics_export_interval_ms = otel.get("metrics_export_interval_ms")
+                if otel_metrics_export_interval_ms is not None:
+                    flattened_data["otel_metrics_export_interval_ms"] = otel_metrics_export_interval_ms
             # file
             file_cfg: dict = exporters_data.get("file", {})
             file_enabled: bool = file_cfg.get("enabled", False)
@@ -1015,6 +1039,16 @@ class AIMonitorSettings(BaseSettings):
                 otel_span_prefix = otel.get("span_prefix")
                 if otel_span_prefix is not None:
                     flattened_data["otel_mcp_span_prefix"] = otel_span_prefix
+                otel_endpoint = otel.get("endpoint")
+                if otel_endpoint is not None:
+                    flattened_data["otel_endpoint"] = otel_endpoint
+                otel_signals = otel.get("signals", {})
+                for signal_name in ("traces", "metrics", "logs"):
+                    if signal_name in otel_signals:
+                        flattened_data[f"otel_{signal_name}_enabled"] = otel_signals[signal_name]
+                otel_metrics_export_interval_ms = otel.get("metrics_export_interval_ms")
+                if otel_metrics_export_interval_ms is not None:
+                    flattened_data["otel_metrics_export_interval_ms"] = otel_metrics_export_interval_ms
             # file
             file_cfg: dict = exporters_data.get("file", {})
             file_enabled: bool = file_cfg.get("enabled", False)
@@ -1133,6 +1167,13 @@ class AIMonitorSettings(BaseSettings):
                 enabled=self.otel_mcp_exporter_enabled,
                 service_name=self.otel_mcp_service_name,
                 span_prefix=self.otel_mcp_span_prefix,
+                endpoint=self.otel_endpoint,
+                signals=OpenTelemetrySignalsSettings(
+                    traces=self.otel_traces_enabled,
+                    metrics=self.otel_metrics_enabled,
+                    logs=self.otel_logs_enabled,
+                ),
+                metrics_export_interval_ms=self.otel_metrics_export_interval_ms,
             ),
             file=FileExporterSettings(
                 enabled=self.file_enabled,

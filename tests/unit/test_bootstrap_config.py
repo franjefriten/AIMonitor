@@ -41,6 +41,12 @@ exporters:
     enabled: true
     service_name: "aimonitor-test"
     span_prefix: "mcp.test"
+    endpoint: "https://otel.example:4318/base"
+    signals:
+      traces: true
+      metrics: true
+      logs: false
+    metrics_export_interval_ms: 15000
 """.strip()
     )
 
@@ -55,6 +61,11 @@ exporters:
     assert settings.file_exporter_logs == Path("./tmp_runtime_logs")
     assert settings.otel_mcp_exporter_enabled is True
     assert settings.otel_mcp_service_name == "aimonitor-test"
+    assert settings.exporters.otel.endpoint == "https://otel.example:4318/base"
+    assert settings.exporters.otel.signals.traces is True
+    assert settings.exporters.otel.signals.metrics is True
+    assert settings.exporters.otel.signals.logs is False
+    assert settings.exporters.otel.metrics_export_interval_ms == 15000
 
     class PrometheusStub(BaseExporter):
         def __init__(self, address: str):
@@ -72,10 +83,41 @@ exporters:
         async def recover(self):
             return True
 
+    class OpenTelemetryStub(BaseExporter):
+        def __init__(self, **options):
+            self.options = options
+
+        async def connect(self):
+            self.connected = True
+
+        async def export_batch(self, event_batch):
+            return None
+
+        async def healthcheck(self):
+            return True
+
+        async def describe(self):
+            return {"status": "healthy"}
+
+        async def recover(self):
+            return True
+
     monkeypatch.setattr("aimonitor.bootstrap.PrometheusExporter", PrometheusStub)
+    monkeypatch.setattr("aimonitor.bootstrap.OpenTelemetryExporter", OpenTelemetryStub)
     initialized = await initialize_monitor(config_path)
     assert initialized.prometheus_enabled is True
     assert initialized.file_enabled is True
+    otel_exporter = next(
+        exporter
+        for exporter in registry.exporters
+        if isinstance(exporter, OpenTelemetryStub)
+    )
+    assert otel_exporter.connected is True
+    assert otel_exporter.options["endpoint"] == "https://otel.example:4318/base"
+    assert otel_exporter.options["traces_enabled"] is True
+    assert otel_exporter.options["metrics_enabled"] is True
+    assert otel_exporter.options["logs_enabled"] is False
+    assert otel_exporter.options["metrics_export_interval_ms"] == 15000
 
     await registry.shutdown()
 
@@ -226,6 +268,16 @@ async def test_json_loader_reads_kafka_settings(tmp_path):
         json.dumps(
             {
                 "exporters": {
+                    "otel": {
+                        "enabled": True,
+                        "endpoint": "http://otel-json:4318",
+                        "signals": {
+                            "traces": True,
+                            "metrics": False,
+                            "logs": True,
+                        },
+                        "metrics_export_interval_ms": 12000,
+                    },
                     "kafka": {
                         "enabled": True,
                         "bootstrap_servers": "localhost:9092",
@@ -282,6 +334,12 @@ async def test_json_loader_reads_kafka_settings(tmp_path):
     assert settings.exporters.kafka.producer.compression == "snappy"
     assert settings.exporters.kafka.producer.max_workers == 4
     assert settings.exporters.kafka.producer.batch_size == 512
+    assert settings.exporters.otel.enabled is True
+    assert settings.exporters.otel.endpoint == "http://otel-json:4318"
+    assert settings.exporters.otel.signals.traces is True
+    assert settings.exporters.otel.signals.metrics is False
+    assert settings.exporters.otel.signals.logs is True
+    assert settings.exporters.otel.metrics_export_interval_ms == 12000
     assert settings.exporters.kafka.producer.retries == 4
 
 

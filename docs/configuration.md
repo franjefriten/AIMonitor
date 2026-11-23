@@ -41,6 +41,11 @@ AIMONITOR_RETRIES_POLICY=3
 AIMONITOR_OTEL_MCP_EXPORTER_ENABLED=true
 AIMONITOR_OTEL_MCP_SERVICE_NAME=my-service
 AIMONITOR_OTEL_MCP_SPAN_PREFIX=mcp.tool
+AIMONITOR_OTEL_ENDPOINT=http://localhost:4318
+AIMONITOR_OTEL_TRACES_ENABLED=true
+AIMONITOR_OTEL_METRICS_ENABLED=false
+AIMONITOR_OTEL_LOGS_ENABLED=false
+AIMONITOR_OTEL_METRICS_EXPORT_INTERVAL_MS=60000
 ```
 
 ## YAML configuration
@@ -77,6 +82,12 @@ exporters:
     enabled: true
     service_name: "aimonitor-test"
     span_prefix: "mcp.test"
+    endpoint: "http://localhost:4318"
+    signals:
+      traces: true
+      metrics: false
+      logs: false
+    metrics_export_interval_ms: 60000
 
   kafka:
     enabled: true
@@ -195,6 +206,11 @@ The most relevant defaults are:
 | `exporters.otel`           | `enabled`              | `false`                                                    |
 | `exporters.otel`           | `service_name`         | `aimonitor-mcp`                                            |
 | `exporters.otel`           | `span_prefix`          | `mcp.tool`                                                 |
+| `exporters.otel`           | `endpoint`              | `http://localhost:4318`                                    |
+| `exporters.otel.signals`   | `traces`                | `false`                                                    |
+| `exporters.otel.signals`   | `metrics`               | `false`                                                    |
+| `exporters.otel.signals`   | `logs`                  | `false`                                                    |
+| `exporters.otel`           | `metrics_export_interval_ms` | `60000`                                               |
 
 The exporter constructors also have explicit standalone defaults. Bootstrap passes the configured values when an exporter is initialized.
 

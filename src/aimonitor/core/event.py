@@ -34,9 +34,9 @@ class LogStatus(str, Enum):
     - debug: debug message.
     """
     CRITICAL = "critical" 
-    ERROR = "error",
-    WARNING = "warning",
-    INFO = "info",
+    ERROR = "error"
+    WARNING = "warning"
+    INFO = "info"
     DEBUG = "debug"
 
 
@@ -160,6 +160,7 @@ class MCPEvent(BaseSignal):
     status: Status = Field(default=Status.SUCCESS, description="The status of the event.")
     error: str = Field(default="", description="The error message of the event if any.")
     result: Any = Field(default=None, description="The result of the event.")
+    trace_id: str = Field(default_factory=lambda: str(uuid4()), description="The trace identifier shared with nested spans.")
     event_type: SignalType = Field(default=SignalType.EVENT, description="The kind of signal being emitted.")
 
 
@@ -176,6 +177,7 @@ class MetricEvent(BaseSignal):
     value: float | int
     metric_type: MetricType = MetricType.GAUGE
     labels: Dict[str, str] = Field(default_factory=dict)
+    unit: str = Field(default="", description="The unit of the measurement.")
 
 
 class SpanEvent(BaseSignal):

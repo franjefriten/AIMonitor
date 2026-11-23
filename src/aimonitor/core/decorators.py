@@ -104,7 +104,8 @@ def monitor_tool(
                             status=status,
                             error=error_message,
                             delta=delta,
-                            version=version
+                            version=version,
+                            trace_id=trace.trace_id,
                         )
                     if settings.tracking.enabled and settings.tracking.track_metrics and track_duration:
                         logger.info(f"Emiting tool metrics event for {func.__name__}")
@@ -250,7 +251,8 @@ def track_tool_call_event(func: Callable) -> Callable:
                         status=status,
                         error=error_message,
                         delta=delta,
-                        version=""
+                        version="",
+                        trace_id=trace.trace_id,
                     )
                 logger.info(f"Tool '{func.__name__}' monitored in {delta:.4f}s")
             except Exception as registry_err:

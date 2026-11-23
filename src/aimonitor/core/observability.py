@@ -4,6 +4,7 @@ from collections.abc import AsyncGenerator, Generator
 from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
 from typing import Any, Optional
+from uuid import uuid4
 
 from aimonitor.core.event import MCPEvent, SignalType, LogEvent, MetricEvent, Status, LogStatus, BaseSignal, MetricType, SpanEvent
 from aimonitor.core.trace import Trace
@@ -48,6 +49,7 @@ class ObservabilityAPI:
         timestamp: datetime | None = None,
         metadata: dict[str, Any] | None = None,
         version: str = "",
+        trace_id: str | None = None,
     ) -> MCPEvent | None:
         if not settings.tracking.track_events:
             logger.error(
@@ -65,7 +67,8 @@ class ObservabilityAPI:
             timestamp=timestamp or datetime.now(timezone.utc),
             metadata=metadata or {},
             event_type=SignalType.EVENT,
-            version=version
+            version=version,
+            trace_id=trace_id or str(uuid4()),
         )
         self.register_error(event, error) if error and status == Status.ERROR else None
         await registry.dispatch(events=[event])
@@ -108,6 +111,7 @@ class ObservabilityAPI:
         labels: dict[str, str] | None = None,
         metadata: dict[str, Any] | None = None,
         version: str = "",
+        unit: str = "",
     ) -> MetricEvent | None:
         if not settings.tracking.track_metrics:
             logger.error(
@@ -124,7 +128,8 @@ class ObservabilityAPI:
             labels=labels or {},
             metadata=metadata or {},
             version=version,
-            environment=environment
+            environment=environment,
+            unit=unit,
         )
         await registry.dispatch(events=[event])
         logger.info(f"Metric event with id '{event.id}' dispatched")

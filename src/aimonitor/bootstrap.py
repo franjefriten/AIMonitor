@@ -59,13 +59,18 @@ async def initialize_monitor(config_path: str | Path | None = None) -> AIMonitor
         )
 
     if settings.exporters.otel.enabled:
-        exporters.append(
-            OpenTelemetryExporter(
-                enabled=True,
-                service_name=settings.exporters.otel.service_name,
-                span_prefix=settings.exporters.otel.span_prefix,
-            )
+        otel_exporter = OpenTelemetryExporter(
+            enabled=True,
+            service_name=settings.exporters.otel.service_name,
+            span_prefix=settings.exporters.otel.span_prefix,
+            endpoint=settings.exporters.otel.endpoint,
+            traces_enabled=settings.exporters.otel.signals.traces,
+            metrics_enabled=settings.exporters.otel.signals.metrics,
+            logs_enabled=settings.exporters.otel.signals.logs,
+            metrics_export_interval_ms=settings.exporters.otel.metrics_export_interval_ms,
         )
+        await otel_exporter.connect()
+        exporters.append(otel_exporter)
 
     if settings.exporters.prometheus.enabled and settings.exporters.prometheus.url is not None:
         exporters.append(PrometheusExporter(address=str(settings.exporters.prometheus.url)))

@@ -11,7 +11,7 @@ The built-in exporters have different purposes and delivery models:
 | `SQLiteExporter` | Local persistence and querying | Events, logs, metrics, and spans in separate SQLite tables | Uses an async SQLite connection and commits each exported batch. Call `connect()` before exporting. |
 | `WebhookExporter` | Forwarding signals to an application or collector | Events, logs, metrics, and spans as a JSON batch over HTTP | Requires an endpoint and `connect()`; HTTP status failures are raised to the registry. |
 | `PrometheusExporter` | Scrape-based numeric monitoring | `MetricEvent` only, exposed from an HTTP `/metrics` endpoint | It does not store raw events or logs. Counters increment, gauges set the current value, and histograms observe samples. |
-| `OpenTelemetryExporter` | Exporting tool executions as traces | `MCPEvent` values as OpenTelemetry spans | Separate from AIMonitor's internal SDK telemetry; requires the optional OpenTelemetry dependencies and an installed SDK/export pipeline to deliver spans externally. |
+| `OpenTelemetryExporter` | Exporting AIMonitor signals over OTLP/HTTP | `MCPEvent` and nested `SpanEvent` traces, metrics, and logs (independently enabled) | Owns private OpenTelemetry providers; the Collector is optional. `args`, `result`, and metadata are not exported by default. |
 | `KafkaExporter` | Asynchronous event streaming to Kafka | Configured signal types as serialized event messages | Requires a running broker and an explicit topic mapping for the signal types being published. |
 
 ## Choosing an exporter
@@ -32,3 +32,10 @@ Exporters that own resources must be connected before exporting and closed when 
 ## Configuration and examples
 
 Exporter settings and YAML examples are documented in [configuration.md](./configuration.md). Basic construction examples are in [usage.md](./usage.md); architectural boundaries, including the separation of internal telemetry from user-facing export, are in [architecture.md](./architecture.md).
+
+The OpenTelemetry integration test uses the SDK's in-memory span exporter and does not require an external collector. Install the optional dependency and run it with:
+
+```bash
+pip install -e ".[opentelemetry]"
+python -m pytest -q tests/integration/test_opentelemetry_exporter_integration.py
+```
