@@ -6,7 +6,7 @@ from aimonitor.exporters.base import BaseExporter
 from aimonitor.core.event import BaseSignal, SignalType
 from aimonitor.utils.logger import logger
 
-from typing import List
+from collections.abc import Sequence
 import io
 import sys
 from datetime import datetime, timezone
@@ -37,7 +37,7 @@ class ConsoleExporter(BaseExporter):
         if hasattr(self.stream, "flush"):
             self.stream.flush()
     
-    async def export_batch(self, event_batch: List[BaseSignal]) -> None:
+    async def export_batch(self, event_batch: Sequence[BaseSignal]) -> None:
         timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')
         output_lines = f"[TRACE][{timestamp}]"
 
@@ -65,7 +65,7 @@ class ConsoleExporter(BaseExporter):
             self.stream.flush()
         return True
     
-    async def describe(self) -> dict:
+    async def describe(self) -> dict[str, object]:
         """
         Return diagnostic details for the ConsoleExporter.
         """

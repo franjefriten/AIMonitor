@@ -5,7 +5,7 @@ from aimonitor.exporters.base import with_retry
 
 import httpx
 import asyncio
-from typing import List
+from collections.abc import Sequence
 
 
 class WebhookExporter(HTTPBaseExporter):
@@ -22,7 +22,7 @@ class WebhookExporter(HTTPBaseExporter):
         await self.export_batch([event])
             
     @with_retry
-    async def export_batch(self, event_batch: List[BaseSignal]) -> None:
+    async def export_batch(self, event_batch: Sequence[BaseSignal]) -> None:
         if not self.client:
             raise RuntimeError("Exporter not connected. Call connect() before exporting.")
         payload = []
@@ -60,7 +60,7 @@ class WebhookExporter(HTTPBaseExporter):
             logger.error("Health check failed for WebhookExporter.")
         return success
 
-    async def describe(self) -> dict:
+    async def describe(self) -> dict[str, object]:
         """
         Return diagnostic details for the WebhookExporter, including the URL and connection status.
         """

@@ -86,26 +86,24 @@ async def export(self, event: MCPEvent) -> None:
 To add a new exporter:
 
 1. Inherit from `BaseExporter`
-2. Implement `export()` method (required)
-3. Implement `export_batch()` for efficiency (optional)
+2. Implement `export_batch()` with a `Sequence[BaseSignal]` parameter
+3. Use the inherited `export()` method for single signals, or override it when needed
 4. Add tests in `tests/unit/test_your_exporter.py`
 5. Document usage in `docs/`
 
 Example:
 
 ```python
+from collections.abc import Sequence
+
 from aimonitor.exporters.base import BaseExporter
-from aimonitor.core.event import MCPEvent
-from typing import List
+from aimonitor.core.event import BaseSignal
 
 class MyExporter(BaseExporter):
-    async def export(self, event: MCPEvent) -> None:
-        # Your implementation
-        pass
-  
-    async def export_batch(self, event_batch: List[MCPEvent]) -> None:
-        # Efficient batch handling
-        pass
+    async def export_batch(self, event_batch: Sequence[BaseSignal]) -> None:
+        for event in event_batch:
+            # Serialize or send each event.
+            ...
 ```
 
 ## Commit messages

@@ -1,6 +1,7 @@
 import asyncio
+from collections.abc import Sequence
 from threading import Thread
-from typing import Any, List, Optional, Sequence
+from typing import Any, List, Optional
 from urllib.parse import urlparse
 from wsgiref.simple_server import WSGIServer
 
@@ -182,7 +183,7 @@ class PrometheusExporter(BaseExporter):
             return False
         return response.status_code == 200 and server_thread.is_alive()
 
-    async def describe(self) -> dict:
+    async def describe(self) -> dict[str, object]:
         """
         Return diagnostic details for the PrometheusExporter.
         """

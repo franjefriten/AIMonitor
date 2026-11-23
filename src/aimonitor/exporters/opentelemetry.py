@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, version
 from sys import version_info
+from collections.abc import Sequence
 from typing import Any
 from urllib.parse import urlparse
 
@@ -210,7 +211,7 @@ class OpenTelemetryExporter(BaseExporter):
             self._cleanup_task = asyncio.create_task(self._cleanup_expired_traces())
         logger.debug("OpenTelemetry exporter connected for service %s", self.service_name)
 
-    async def export_batch(self, event_batch: list[BaseSignal]) -> None:
+    async def export_batch(self, event_batch: Sequence[BaseSignal]) -> None:
         if not self.enabled:
             return
         if not self._connected:
@@ -544,7 +545,7 @@ class OpenTelemetryExporter(BaseExporter):
             and (not self.logs_enabled or self._logger_provider is not None)
         )
 
-    async def describe(self) -> dict:
+    async def describe(self) -> dict[str, object]:
         healthy = await self.healthcheck()
         return {
             "status": "healthy" if healthy else "unhealthy",

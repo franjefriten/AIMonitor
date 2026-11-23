@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from typing import List
 
 from aimonitor.exporters.base import BaseExporter
@@ -481,7 +482,7 @@ class ExporterRegistry:
                     last_flush = now
                     batch = []
 
-    async def _send_batch(self, batch):
+    async def _send_batch(self, batch: Sequence[BaseSignal]) -> None:
         for exporter in self._exporters:
             try:
                 await exporter.export_batch(batch)

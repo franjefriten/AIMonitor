@@ -274,16 +274,13 @@ Extend `BaseExporter` for custom behavior:
 
 ```python
 from aimonitor.exporters.base import BaseExporter
-from aimonitor.core.event import MCPEvent
-from typing import List
+from aimonitor.core.event import BaseSignal
+from collections.abc import Sequence
 
 class CustomExporter(BaseExporter):
-    async def export(self, event: MCPEvent) -> None:
-        print(f"Custom export: {event.tool_name}")
-  
-    async def export_batch(self, event_batch: List[MCPEvent]) -> None:
+    async def export_batch(self, event_batch: Sequence[BaseSignal]) -> None:
         for event in event_batch:
-            await self.export(event)
+            print(f"Custom export: {event.id}")
 
 # Register
 from aimonitor.core.registry import registry

@@ -2,7 +2,7 @@ from aimonitor.exporters.base import BaseDatabaseExporter
 from aimonitor.utils.logger import logger
 from aimonitor.core.event import BaseSignal, SignalType, MCPEvent, LogEvent, MetricEvent, SpanEvent
 
-from typing import List
+from collections.abc import Sequence
 import json
 from datetime import datetime
 from enum import Enum
@@ -59,12 +59,12 @@ class SQLiteExporter(BaseDatabaseExporter):
         table_name = self._signal_table_name(signal_type)
         return model.as_sqlite_table(table_name=table_name)
 
-    async def _open_connection(self):
+    async def _open_connection(self) -> None:
         self.client = await self.aiosqlite.connect(database=self.dsn)
         await self.client.execute("PRAGMA journal_mode=WAL;")
         await self.client.commit()
 
-    async def _create_table_if_not_exists(self):
+    async def _create_table_if_not_exists(self) -> None:
         for signal_type in SignalType:
             if signal_type not in SIGNAL_MODEL_MAP:
                 continue
@@ -72,19 +72,19 @@ class SQLiteExporter(BaseDatabaseExporter):
             await self.client.execute(query)
         await self.client.commit()
 
-    async def close(self):
+    async def close(self) -> None:
         if self.client:
             await self.client.close()
             self.client = None
 
-    async def export(self, event: BaseSignal):
+    async def export(self, event: BaseSignal) -> None:
         await self.export_batch([event])
     
-    async def export_batch(self, event_batch: List[BaseSignal]):
+    async def export_batch(self, event_batch: Sequence[BaseSignal]) -> None:
         if not self.client:
             raise RuntimeError(f"client for {self.__class__.__name__} not initialized")
 
-        batches: dict[str, List[BaseSignal]] = {}
+        batches: dict[str, list[BaseSignal]] = {}
         for event in event_batch:
             table_name = self._signal_table_name(event.event_type)
             batches.setdefault(table_name, []).append(event)
@@ -118,7 +118,7 @@ class SQLiteExporter(BaseDatabaseExporter):
             success = False
         return success
     
-    async def describe(self) -> dict:
+    async def describe(self) -> dict[str, object]:
         """
         Return diagnostic details for the SQLiteExporter, including its database path.
         """

@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
-from typing import Any, List, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 from aimonitor.configs.config import get_settings
 from aimonitor.core.event import BaseSignal, SignalType
@@ -186,7 +187,7 @@ class KafkaExporter(BaseExporter):
             logger.error("Health check failed for KafkaExporter.")
         return success
 
-    async def describe(self) -> dict:
+    async def describe(self) -> dict[str, object]:
         try:
             return await asyncio.to_thread(self._health_probe.describe_sync)
         except Exception as exc:
