@@ -262,6 +262,50 @@ exporters:
 
 
 @pytest.mark.asyncio
+async def test_yaml_secret_references_resolve_from_environment(tmp_path, monkeypatch):
+    monkeypatch.setenv("KAFKA_CONFIG_USERNAME", "aimonitor-user")
+    monkeypatch.setenv("KAFKA_CONFIG_PASSWORD", "test-password")
+    config_path = tmp_path / "kafka_secrets.yaml"
+    config_path.write_text(
+        """
+exporters:
+  kafka:
+    enabled: true
+    sasl:
+      username: "service-$secrets.KAFKA_CONFIG_USERNAME"
+      password: "$secrets.KAFKA_CONFIG_PASSWORD"
+""".strip()
+    )
+
+    settings = AIMonitorSettings()
+    await settings.load_from_yaml(config_path)
+
+    assert settings.kafka_sasl_username.get_secret_value() == "service-aimonitor-user"
+    assert settings.kafka_sasl_password.get_secret_value() == "test-password"
+
+
+@pytest.mark.asyncio
+async def test_yaml_secret_reference_requires_environment_variable(tmp_path):
+    config_path = tmp_path / "missing_secret.yaml"
+    config_path.write_text(
+        """
+exporters:
+  kafka:
+    enabled: true
+    sasl:
+      password: "$secrets.MISSING_KAFKA_PASSWORD"
+""".strip()
+    )
+
+    settings = AIMonitorSettings()
+    with pytest.raises(
+        ValueError,
+        match="Required secret environment variable 'MISSING_KAFKA_PASSWORD' is not set",
+    ):
+        await settings.load_from_yaml(config_path)
+
+
+@pytest.mark.asyncio
 async def test_json_loader_reads_kafka_settings(tmp_path):
     config_path = tmp_path / "kafka_aimonitor.json"
     config_path.write_text(

@@ -1,6 +1,8 @@
 from enum import Enum
 from functools import lru_cache
+import os
 from pathlib import Path
+import re
 from typing import Any, Literal, Optional
 from urllib import parse
 import socket
@@ -128,6 +130,38 @@ _KAFKA_GROUP_ID_ALIASES = frozenset({"group_id", "group.id", "groupId", "kafka_g
 _KAFKA_AUTO_OFFSET_RESET_ALIASES = frozenset({"auto_offset_reset", "auto.offset.reset", "autoOffsetReset", "kafka_auto_offset_reset"})
 _KAFKA_REQUEST_TIMEOUT_MS_ALIASES = frozenset({"request_timeout_ms", "request.timeout.ms", "requestTimeoutMs", "kafka_request_timeout_ms"})
 _KAFKA_DELIVERY_TIMEOUT_MS_ALIASES = frozenset({"delivery_timeout_ms", "delivery.timeout.ms", "deliveryTimeoutMs", "kafka_delivery_timeout_ms"})
+
+_SECRET_REFERENCE_PREFIX = "$secrets."
+_SECRET_REFERENCE_PATTERN = re.compile(r"\$secrets\.([A-Za-z_][A-Za-z0-9_]*)")
+
+
+def _resolve_secret_references(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _resolve_secret_references(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_resolve_secret_references(item) for item in value]
+    if not isinstance(value, str) or _SECRET_REFERENCE_PREFIX not in value:
+        return value
+
+    references = list(_SECRET_REFERENCE_PATTERN.finditer(value))
+    if value.count(_SECRET_REFERENCE_PREFIX) != len(references):
+        raise ValueError(
+            "Invalid secret reference; expected '$secrets.ENV_VAR_NAME'."
+        )
+
+    def replace_reference(match: re.Match[str]) -> str:
+        env_name = match.group(1)
+        secret = os.environ.get(env_name)
+        if not secret:
+            raise ValueError(
+                f"Required secret environment variable '{env_name}' is not set."
+            )
+        return secret
+
+    return _SECRET_REFERENCE_PATTERN.sub(replace_reference, value)
 
 
 LOGGING_CONFIG = {
@@ -627,7 +661,9 @@ class AIMonitorSettings(BaseSettings):
 
         self._prepare_for_file_load()
         async with aiofiles.open(yaml_file_path, mode="r", encoding="utf-8") as config_file:
-            data = yaml.safe_load(await config_file.read()) or {}
+            data = _resolve_secret_references(
+                yaml.safe_load(await config_file.read()) or {}
+            )
 
         if data:
             # app
