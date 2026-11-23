@@ -22,22 +22,7 @@ class ConsoleExporter(BaseExporter):
         super().__init__()
         self.stream = stream
 
-    async def export(self, event: BaseSignal) -> None:
-        if event.event_type not in self.SUPPORTED_SIGNALS:
-            logger.warning(
-                "Event type '%s' with id: '%s' is not supported by ConsoleExporter. Skipping export for event.",
-                event.event_type,
-                event.id
-                )       
-            return
-        output = f"[TRACE][{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')}]"
-        output += f"\n{event.model_dump()}"
-        self.stream.write(output + "\n")
-
-        if hasattr(self.stream, "flush"):
-            self.stream.flush()
-    
-    async def export_batch(self, event_batch: Sequence[BaseSignal]) -> None:
+    async def export(self, event_batch: Sequence[BaseSignal]) -> None:
         timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')
         output_lines = f"[TRACE][{timestamp}]"
 

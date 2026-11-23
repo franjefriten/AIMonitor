@@ -27,7 +27,7 @@ def test_opentelemetry_exporter_with_no_signals_is_noop():
     exporter = OpenTelemetryExporter(enabled=True)
 
     asyncio.run(exporter.connect())
-    asyncio.run(exporter.export_batch([]))
+    asyncio.run(exporter.export([]))
 
     assert exporter._connected is True
     assert exporter.tracer is None

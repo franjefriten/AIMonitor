@@ -61,19 +61,6 @@ pytest --cov=. tests/
 - Use type hints where possible
 - Keep functions focused and well-documented
 
-Example:
-
-```python
-async def export(self, event: MCPEvent) -> None:
-    """
-    Export a single event.
-  
-    Args:
-        event: The MCPEvent to export
-    """
-    await self.export_batch([event])
-```
-
 ### Adding features
 
 1. **Create tests first** (TDD approach recommended)
@@ -85,26 +72,34 @@ async def export(self, event: MCPEvent) -> None:
 
 To add a new exporter:
 
-1. Inherit from `BaseExporter`
-2. Implement `export_batch()` with a `Sequence[BaseSignal]` parameter
-3. Use the inherited `export()` method for single signals, or override it when needed
-4. Add tests in `tests/unit/test_your_exporter.py`
-5. Document usage in `docs/`
+1. Implement `ProtocolExporter` with `export()` for the minimal registry interface, or inherit from `BaseExporter` for health checks and recovery management.
+2. Implement `export()` with a `Sequence[BaseSignal]` parameter.
+3. Add tests in `tests/unit/test_your_exporter.py`.
+4. Document usage in `docs/`.
 
 Example:
 
 ```python
 from collections.abc import Sequence
 
-from aimonitor.exporters.base import BaseExporter
-from aimonitor.core.event import BaseSignal
+from aimonitor.exporters.base import ProtocolExporter
+from aimonitor.core.event import BaseSignal, MCPEvent
 
-class MyExporter(BaseExporter):
-    async def export_batch(self, event_batch: Sequence[BaseSignal]) -> None:
+class MyExporter(ProtocolExporter):
+    async def export(self, event_batch: Sequence[BaseSignal]) -> None:
         for event in event_batch:
             # Serialize or send each event.
             ...
+
+# Register and dispatch through the SDK registry.
+from aimonitor.core.registry import registry
+registry.register(MyExporter())
+await registry.dispatch(MCPEvent(tool_name="example"))
 ```
+
+`ProtocolExporter` requires only `export()`. Instances implementing only
+this protocol are omitted from health/readiness snapshots, which track
+`BaseExporter` instances that support health checks and recovery.
 
 ## Commit messages
 
@@ -204,7 +199,7 @@ async def test_file_exporter_creates_file():
     await exporter.connect()
   
     event = MCPEvent(...)
-    await exporter.export(event)
+    await exporter.export([event])
   
     files = list(tmp_path.glob("*.jsonl"))
     assert len(files) == 1

@@ -131,7 +131,7 @@ async def _wait_for_prometheus_health(port: int, timeout: float = 60.0) -> bool:
 async def test_prometheus_exporter_records_metrics_for_batch():
     exporter = PrometheusExporter()
     registry = exporter.registry
-    await exporter.export_batch(
+    await exporter.export(
         [
             _build_metric_event(
                 name="tool_execution_count",
@@ -167,7 +167,7 @@ async def test_prometheus_exporter_ignores_non_metric_signals():
     registry = CollectorRegistry(auto_describe=True)
     exporter = PrometheusExporter()
 
-    await exporter.export_batch(
+    await exporter.export(
         [
             MCPEvent(tool_name="sample_tool"),
             LogEvent(message="not a metric", source="test"),
@@ -183,34 +183,34 @@ async def test_prometheus_exporter_ignores_non_metric_signals():
 @pytest.mark.prometheus
 async def test_prometheus_exporter_rejects_metric_schema_changes():
     exporter = PrometheusExporter()
-    await exporter.export(
+    await exporter.export([
         _build_metric_event(
             name="active_workers",
             value=2,
             metric_type=MetricType.GAUGE,
             labels={"service": "api"},
         )
-    )
+    ])
 
     with pytest.raises(ValueError, match="already registered with labels"):
-        await exporter.export(
+        await exporter.export([
             _build_metric_event(
                 name="active_workers",
                 value=3,
                 metric_type=MetricType.GAUGE,
                 labels={"service": "api", "region": "west"},
             )
-        )
+        ])
 
     with pytest.raises(ValueError, match="already registered as gauge"):
-        await exporter.export(
+        await exporter.export([
             _build_metric_event(
                 name="active_workers",
                 value=3,
                 metric_type=MetricType.COUNTER,
                 labels={"service": "api"},
             )
-        )
+        ])
 
 
 @pytest.mark.integration
@@ -221,13 +221,13 @@ async def test_prometheus_exporter_rejects_negative_counter_values_without_regis
     registry = exporter.registry
 
     with pytest.raises(ValueError, match="cannot be incremented by a negative value"):
-        await exporter.export(
+        await exporter.export([
             _build_metric_event(
                 name="requests",
                 value=-1,
                 metric_type=MetricType.COUNTER,
             )
-        )
+        ])
 
     assert generate_latest(registry) == b""
 
@@ -244,7 +244,7 @@ async def test_prometheus_exporter_exposes_metrics_over_http():
     await exporter.connect()
     try:
         assert await exporter.healthcheck() is True
-        await exporter.export_batch(
+        await exporter.export(
             [
                 _build_metric_event(
                     name="tool_execution_count",
@@ -340,13 +340,13 @@ async def test_prometheus_exporter_lifecycle_operations_are_idempotent():
     try:
         await exporter.connect()
         await exporter.connect()
-        await exporter.export(
+        await exporter.export([
             _build_metric_event(
                 name="lifecycle_probe",
                 value=4,
                 metric_type=MetricType.GAUGE,
             )
-        )
+        ])
 
         await exporter.close()
         await exporter.close()
@@ -372,13 +372,13 @@ async def test_prometheus_exporter_recovers_after_server_thread_stops():
 
     try:
         await exporter.connect()
-        await exporter.export(
+        await exporter.export([
             _build_metric_event(
                 name="recovery_probe",
                 value=6,
                 metric_type=MetricType.GAUGE,
             )
-        )
+        ])
 
         await asyncio.to_thread(exporter._http_server.shutdown)
         await asyncio.to_thread(exporter._server_thread.join, 5.0)
@@ -459,14 +459,14 @@ async def test_prometheus_server_restart_resumes_scraping():
         pytest.skip(f"Prometheus test port {prometheus_port} is already in use")
 
     exporter = PrometheusExporter(address="http://0.0.0.0:9000")
-    await exporter.export(
+    await exporter.export([
         _build_metric_event(
             name="prometheus_restart_probe",
             value=7,
             metric_type=MetricType.GAUGE,
             labels={"run_id": run_id},
         )
-    )
+    ])
 
     prometheus_url = f"http://127.0.0.1:{prometheus_port}"
     selector = f'prometheus_restart_probe{{run_id="{run_id}"}}'

@@ -149,7 +149,7 @@ async def test_opentelemetry_exporter_maps_metrics_and_logs(monkeypatch):
     await exporter.connect()
 
     try:
-        await exporter.export_batch(
+        await exporter.export(
             [
                 MetricEvent(
                     name="requests_total",

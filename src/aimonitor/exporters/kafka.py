@@ -133,7 +133,7 @@ class KafkaExporter(BaseExporter):
         return _encode_partition_key(tool_name)
 
     @with_retry
-    async def export_batch(self, event_batch: Sequence[BaseSignal]) -> None:
+    async def export(self, event_batch: Sequence[BaseSignal]) -> None:
         if self.producer is None or self._closed:
             raise ExporterNotReadyError("Kafka producer is not initialized or is closed")
 

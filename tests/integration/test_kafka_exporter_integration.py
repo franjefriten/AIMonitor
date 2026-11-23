@@ -167,7 +167,7 @@ exporters:
     registry.register(kafka_exporter)
 
     events = [_build_event() for _ in range(12)]
-    await kafka_exporter.export_batch(
+    await kafka_exporter.export(
         event_batch=events
     )
     await asyncio.sleep(0.5)
@@ -334,7 +334,7 @@ exporters:
 
     lost_event = _build_event(tool_name="broker_down_event")
     with pytest.raises(Exception):
-        await asyncio.wait_for(kafka_exporter.export_batch([lost_event]), timeout=30)
+        await asyncio.wait_for(kafka_exporter.export([lost_event]), timeout=30)
 
     _restart_kafka_container()
     assert await _wait_for_kafka(timeout=30)
@@ -343,7 +343,7 @@ exporters:
     assert await kafka_exporter.healthcheck() is True
 
     event = _build_event(tool_name="broker_recovered_event")
-    await kafka_exporter.export_batch([event])
+    await kafka_exporter.export([event])
     await asyncio.sleep(0.5)
 
     configs_consumer = isolated_settings.get_kafka_config().copy()
@@ -428,7 +428,7 @@ exporters:
     registry.register(kafka_exporter)
 
     events = [_build_event() for _ in range(12)]
-    await kafka_exporter.export_batch(
+    await kafka_exporter.export(
         event_batch=events
     )
     await asyncio.sleep(0.5)

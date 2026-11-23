@@ -13,17 +13,8 @@ async def test_emit_span_event():
     captured = []
 
     class SpyExporter:
-        async def export(self, event):
-            captured.append(event)
-
-        async def export_batch(self, event_batch):
+        async def export(self, event_batch):
             captured.extend(event_batch)
-        
-        async def healthcheck(self):
-            pass
-
-        async def describe(self):
-            pass
 
     await registry.reset()
     registry.register(exporter=SpyExporter())
@@ -61,17 +52,8 @@ async def test_emit_multi_span_event():
     captured = []
 
     class SpyExporter:
-        async def export(self, event):
-            captured.append(event)
-
-        async def export_batch(self, event_batch):
+        async def export(self, event_batch):
             captured.extend(event_batch)
-
-        async def healthcheck(self):
-            pass
-
-        async def describe(self):
-            pass
 
     registry.register(exporter=SpyExporter())
 
@@ -108,10 +90,7 @@ async def test_emit_span_from_many_decorators():
     captured = []
 
     class SpyExporter:
-        async def export(self, event):
-            captured.append(event)
-
-        async def export_batch(self, event_batch):
+        async def export(self, event_batch):
             captured.extend(event_batch)
 
     registry.register(exporter=SpyExporter())

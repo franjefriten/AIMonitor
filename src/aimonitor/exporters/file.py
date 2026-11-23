@@ -78,11 +78,8 @@ class FileExporter(BaseExporter):
         if self.client and not self.client.closed:
             await self.client.close()  
         
-    async def export(self, event: BaseSignal) -> None:
-        await self.export_batch([event])
-    
     @with_retry
-    async def export_batch(self, event_batch: Sequence[BaseSignal]) -> None:
+    async def export(self, event_batch: Sequence[BaseSignal]) -> None:
         if not self.client:
             logger.error(f"client for {self.__class__.__name__} not initialized")
         lines = []

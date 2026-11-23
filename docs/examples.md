@@ -270,22 +270,26 @@ async with MonitoredApp() as app:
 
 ## Advanced: Custom exporter
 
-Extend `BaseExporter` for custom behavior:
+Implement `ProtocolExporter` for an exporter that only needs batch delivery:
 
 ```python
-from aimonitor.exporters.base import BaseExporter
-from aimonitor.core.event import BaseSignal
+from aimonitor.exporters.base import ProtocolExporter
+from aimonitor.core.event import BaseSignal, MCPEvent
 from collections.abc import Sequence
 
-class CustomExporter(BaseExporter):
-    async def export_batch(self, event_batch: Sequence[BaseSignal]) -> None:
+class CustomExporter(ProtocolExporter):
+    async def export(self, event_batch: Sequence[BaseSignal]) -> None:
         for event in event_batch:
             print(f"Custom export: {event.id}")
 
-# Register
+# Register and use the SDK dispatch entrypoint.
 from aimonitor.core.registry import registry
 registry.register(CustomExporter())
+await registry.dispatch(MCPEvent(tool_name="example"))
 ```
+
+Use `BaseExporter` instead when exporter health checks and recovery should be
+included in SDK readiness.
 
 ## Next steps
 

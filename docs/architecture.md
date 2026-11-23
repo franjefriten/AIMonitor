@@ -103,9 +103,7 @@ The CI workflow runs unit tests on every pull request to `main`.
 
 ## How to extend
 
-To add a new exporter:
-
-1. inherit from `exporters.base.BaseExporter`
-2. implement `export` and optionally `export_batch`
-3. register the exporter in `core.registry`
-4. add tests under `tests/unit`
+To add an exporter, implement `export()` and register it in
+`core.registry`. `exporters.base.ProtocolExporter` is the minimal contract.
+Inherit from `BaseExporter` when health checks and recovery management are
+needed; only those exporters appear in readiness snapshots.

@@ -77,10 +77,7 @@ class SQLiteExporter(BaseDatabaseExporter):
             await self.client.close()
             self.client = None
 
-    async def export(self, event: BaseSignal) -> None:
-        await self.export_batch([event])
-    
-    async def export_batch(self, event_batch: Sequence[BaseSignal]) -> None:
+    async def export(self, event_batch: Sequence[BaseSignal]) -> None:
         if not self.client:
             raise RuntimeError(f"client for {self.__class__.__name__} not initialized")
 

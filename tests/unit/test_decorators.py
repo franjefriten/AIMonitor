@@ -11,9 +11,7 @@ async def test_tool_monitoring_workflow():
 
     # 2. Mock exporter will store those events
     class SpyExporter(BaseExporter):
-        async def export(self, event):
-            captured_events.append(event)
-        async def export_batch(self, event_batch: list):
+        async def export(self, event_batch: list):
             captured_events.extend(event_batch)
         async def healthcheck(self):
             pass

@@ -145,7 +145,7 @@ Priorities are defined as follows:
 - Create an exporter matrix documenting each exporter's configuration, optional dependencies, delivery guarantees, resource ownership, failure behavior, recovery support, and existing tests.
 - Document the required behavior of:
   - `export()`;
-  - `export_batch()`;
+  - `export()`;
   - `healthcheck()`;
   - `describe()`;
   - `recover()`;

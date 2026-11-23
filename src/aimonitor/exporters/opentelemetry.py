@@ -211,7 +211,7 @@ class OpenTelemetryExporter(BaseExporter):
             self._cleanup_task = asyncio.create_task(self._cleanup_expired_traces())
         logger.debug("OpenTelemetry exporter connected for service %s", self.service_name)
 
-    async def export_batch(self, event_batch: Sequence[BaseSignal]) -> None:
+    async def export(self, event_batch: Sequence[BaseSignal]) -> None:
         if not self.enabled:
             return
         if not self._connected:

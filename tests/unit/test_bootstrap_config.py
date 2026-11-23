@@ -71,8 +71,8 @@ exporters:
         def __init__(self, address: str):
             self.address = address
 
-        def export_batch(self, event_batch):
-            return super().export_batch(event_batch)
+        def export(self, event_batch):
+            return super().export(event_batch)
 
         async def healthcheck(self):
             return True
@@ -90,7 +90,7 @@ exporters:
         async def connect(self):
             self.connected = True
 
-        async def export_batch(self, event_batch):
+        async def export(self, event_batch):
             return None
 
         async def healthcheck(self):

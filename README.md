@@ -55,7 +55,10 @@ pip install "ai-monitor-sdk[opentelemetry,sqlite,prometheus,kafka]"
 
 ### Exporters
 
-In AIMonitor, an *Exporter* refers to a class that inherits from *BaseExporter* class. Their purpose is to serve as a client to your custom storage for tool traces, tokens, etc. As such, AIMonitor comes with a set of programmed exporters:
+In AIMonitor, an *Exporter* implements the `ProtocolExporter` batch interface.
+Inheriting from `BaseExporter` additionally opts into health checks and recovery.
+Exporters serve as clients to your custom storage for tool traces, tokens, etc.
+AIMonitor comes with a set of programmed exporters:
 
 #### 🔌 Available Exporters
 
@@ -70,7 +73,11 @@ In AIMonitor, an *Exporter* refers to a class that inherits from *BaseExporter* 
 | **PostgreSQLExporter**    | Postgres implementation         | ❌ Coming on future releases |
 | **MongoDBExporter**       | MongoDb implementation          | ❌ Coming on future releases |
 
-However, AIMonitor is designed as a flexible sdk, meaning you can create your own custom exporters as long as you follow the contract explained later on the documentation of this repo.
+However, AIMonitor is designed as a flexible SDK. Custom exporters can implement
+the minimal `ProtocolExporter` contract by providing `export()` only, or
+inherit from `BaseExporter` to participate in health checks and recovery.
+Simple protocol exporters are dispatched normally but are not included in
+health/readiness snapshots.
 
 #### 🔧 Configuration
 
@@ -175,12 +182,15 @@ Refer to the documentation on [usage](docs/usage.md) for further explanation on 
 ```python
 from aimonitor.exporters.file import FileExporter
 from aimonitor.core.registry import registry
+from aimonitor.core.event import MCPEvent
 
 exporter = FileExporter(base_uri="./logs")
 await exporter.connect()
 registry.register(exporter)
 
-# Now all monitored tool calls are exported to ./logs
+# Monitored tool calls are exported automatically. Signals can also be
+# dispatched explicitly through the SDK registry:
+await registry.dispatch(MCPEvent(tool_name="manual_event"))
 ```
 
 ## 📚 Documentation

@@ -18,11 +18,8 @@ class WebhookExporter(HTTPBaseExporter):
     def __init__(self, url, headers=None, auth=None):
         super().__init__(url=url, headers=headers, auth=auth)
 
-    async def export(self, event: BaseSignal) -> None:
-        await self.export_batch([event])
-            
     @with_retry
-    async def export_batch(self, event_batch: Sequence[BaseSignal]) -> None:
+    async def export(self, event_batch: Sequence[BaseSignal]) -> None:
         if not self.client:
             raise RuntimeError("Exporter not connected. Call connect() before exporting.")
         payload = []

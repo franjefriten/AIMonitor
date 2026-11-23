@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from typing import List
 
-from aimonitor.exporters.base import BaseExporter
+from aimonitor.exporters.base import BaseExporter, ProtocolExporter
 from aimonitor.exporters.console import ConsoleExporter
 from aimonitor.core.event import (
     BaseSignal,
@@ -30,7 +30,7 @@ class ExporterRegistry:
 
     def __init__(self, batch_size: int = 10, flush_delta: float = 1.0, num_workers: int = 5):
         if not hasattr(self, "_exporters"):
-            self._exporters: List[BaseExporter] = []
+            self._exporters: List[ProtocolExporter] = []
         if not hasattr(self, "_workers"):
             self._workers: List[asyncio.Task] = []
         if not hasattr(self, "_queue"):
@@ -349,7 +349,7 @@ class ExporterRegistry:
 
     async def _healthcheck_loop(self):
         while self._healthcheck_enabled:
-            for exporter in list(self._exporters):
+            for exporter in self._health_managed_exporters():
                 try:
                     health_snapshot = await asyncio.wait_for(
                         self._run_healthcheck(exporter),
@@ -386,22 +386,33 @@ class ExporterRegistry:
 
         return True
 
-    def register(self, exporter: BaseExporter):
+    def register(self, exporter: ProtocolExporter):
         self._exporters.append(exporter)
-        self._update_exporter_health(
-            exporter,
-            HealthCheckSnapshot(
-                exporter_name=exporter.__class__.__name__,
-                status=HealthStatus.STARTING,
-                message="Exporter registered; healthcheck pending.",
-            ),
-        )
-        self._start_healthcheck_worker()
+        if isinstance(exporter, BaseExporter):
+            self._update_exporter_health(
+                exporter,
+                HealthCheckSnapshot(
+                    exporter_name=exporter.__class__.__name__,
+                    status=HealthStatus.STARTING,
+                    message="Exporter registered; healthcheck pending.",
+                ),
+            )
+            self._start_healthcheck_worker()
+        else:
+            # Readiness tracks exporters with BaseExporter health management only.
+            self._update_sdk_health()
 
     @property
-    def exporters(self) -> tuple[BaseExporter, ...]:
+    def exporters(self) -> tuple[ProtocolExporter, ...]:
         """Return a read-only snapshot of the registered exporters."""
         return tuple(self._exporters)
+
+    def _health_managed_exporters(self) -> list[BaseExporter]:
+        return [
+            exporter
+            for exporter in self._exporters
+            if isinstance(exporter, BaseExporter)
+        ]
 
     async def dispatch(self, events: List[BaseSignal] | BaseSignal):
         if not self._ensure_queue_exists():
@@ -485,12 +496,14 @@ class ExporterRegistry:
     async def _send_batch(self, batch: Sequence[BaseSignal]) -> None:
         for exporter in self._exporters:
             try:
-                await exporter.export_batch(batch)
-                self._record_export_result(exporter, success=True)
+                await exporter.export(batch)
+                if isinstance(exporter, BaseExporter):
+                    self._record_export_result(exporter, success=True)
             except Exception as exc:
                 exporter_name = exporter.__class__.__name__
                 logger.error(f"Exporter {exporter_name} failed to export event batch, error: {repr(exc)}")
-                self._record_export_result(exporter, success=False, message=str(exc))
+                if isinstance(exporter, BaseExporter):
+                    self._record_export_result(exporter, success=False, message=str(exc))
 
     async def shutdown(self):
         if self._queue is not None:
@@ -507,11 +520,12 @@ class ExporterRegistry:
             self._healthcheck_worker = None
 
         for exporter in list(self._exporters):
-            key = self._snapshot_key(exporter)
-            snapshot = self._health.exporters.get(key)
-            if snapshot is not None:
-                snapshot.status = HealthStatus.STOPPED
-                snapshot.message = "Exporter stopped."
+            if isinstance(exporter, BaseExporter):
+                key = self._snapshot_key(exporter)
+                snapshot = self._health.exporters.get(key)
+                if snapshot is not None:
+                    snapshot.status = HealthStatus.STOPPED
+                    snapshot.message = "Exporter stopped."
             try:
                 if hasattr(exporter, 'close'):
                     await exporter.close()

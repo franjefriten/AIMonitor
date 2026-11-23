@@ -14,10 +14,7 @@ async def test_observability_api_emits_event_log_and_metric_signals():
     captured = []
 
     class SpyExporter(BaseExporter):
-        async def export(self, event):
-            captured.append(event)
-
-        async def export_batch(self, event_batch):
+        async def export(self, event_batch):
             captured.extend(event_batch)
 
         async def healthcheck(self):

@@ -124,10 +124,7 @@ class PrometheusExporter(BaseExporter):
         self._metrics[event.name] = (event.metric_type, label_names, metric)
         return metric
 
-    async def export(self, event: BaseSignal) -> None:
-        await self.export_batch([event])
-
-    async def export_batch(self, event_batch: Sequence[BaseSignal]) -> None:
+    async def export(self, event_batch: Sequence[BaseSignal]) -> None:
         for event in event_batch:
             if event.event_type not in self.SUPPORTED_SIGNALS:
                 logger.warning(

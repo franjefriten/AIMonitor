@@ -241,7 +241,7 @@ class OptionalDependencyError(AIMonitorError, ImportError):
 The exception hierarchy should align with the existing registry behavior in
 `src/aimonitor/core/registry.py`:
 
-- `export_batch()` raises an exporter operation exception:
+- `export()` raises an exporter operation exception:
   record the exporter operation as `FAILURE`.
 - `healthcheck()` returns `False`:
   record the exporter as `DOWN`.

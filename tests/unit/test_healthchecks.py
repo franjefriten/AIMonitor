@@ -43,10 +43,7 @@ async def test_health_check_event_emission():
     captured = []
 
     class SpyExporter(BaseExporter):
-        async def export(self, event):
-            captured.append(event)
-
-        async def export_batch(self, event_batch):
+        async def export(self, event_batch):
             captured.extend(event_batch)
         
         async def healthcheck(self):
@@ -85,7 +82,7 @@ async def test_base_healthcheck_wraps_custom_healthcheck_and_emits_telemetry(mon
     captured = []
 
     class CustomExporter(BaseExporter):
-        async def export_batch(self, event_batch):
+        async def export(self, event_batch):
             pass
 
         async def healthcheck(self):
@@ -130,7 +127,7 @@ async def test_healthcheck_false_populates_snapshot(monkeypatch):
     captured = []
 
     class CustomExporter(BaseExporter):
-        async def export_batch(self, event_batch):
+        async def export(self, event_batch):
             pass
 
         async def healthcheck(self):
@@ -176,7 +173,7 @@ async def test_healthcheck_failure_populates_snapshot(monkeypatch):
     captured = []
 
     class CustomExporter(BaseExporter):
-        async def export_batch(self, event_batch):
+        async def export(self, event_batch):
             pass
 
         async def healthcheck(self):
@@ -226,7 +223,7 @@ async def test_inner_telemetry_disabled_keeps_health_snapshot_without_sending_to
     captured = []
 
     class CustomExporter(BaseExporter):
-        async def export_batch(self, event_batch):
+        async def export(self, event_batch):
             pass
 
         async def healthcheck(self):
@@ -262,7 +259,7 @@ async def test_consecutive_success_and_fail_healthchecks(monkeypatch):
     captured = []
 
     class CustomExporter(BaseExporter):
-        async def export_batch(self, event_batch):
+        async def export(self, event_batch):
             pass
 
         async def healthcheck(self, check: bool):
@@ -309,7 +306,7 @@ async def test_health_status_transition(monkeypatch):
         def __init__(self):
             self.healthy = True
 
-        async def export_batch(self, event_batch):
+        async def export(self, event_batch):
             pass
 
         async def healthcheck(self):
@@ -405,7 +402,7 @@ async def test_health_recovery(monkeypatch):
         def __init__(self):
             self.healthy = False
 
-        async def export_batch(self, event_batch):
+        async def export(self, event_batch):
             pass
 
         async def healthcheck(self):
@@ -460,7 +457,7 @@ async def test_health_recovery_failed(monkeypatch):
         def __init__(self):
             self.healthy = False
 
-        async def export_batch(self, event_batch):
+        async def export(self, event_batch):
             pass
 
         async def healthcheck(self):
@@ -511,7 +508,7 @@ async def test_health_recovery_retries_until_success(monkeypatch):
             self.recover_calls = 0
             self.healthy = False
 
-        async def export_batch(self, event_batch):
+        async def export(self, event_batch):
             pass
 
         async def healthcheck(self):
@@ -558,7 +555,7 @@ async def test_health_recovery_timeout_marks_exporter_as_failure():
         def __init__(self):
             self.recover_calls = 0
 
-        async def export_batch(self, event_batch):
+        async def export(self, event_batch):
             pass
 
         async def healthcheck(self):
@@ -595,7 +592,7 @@ async def test_health_recovery_timeout_marks_exporter_as_failure():
 @pytest.mark.asyncio
 async def test_readiness_uses_cached_lifecycle_snapshot_without_describe(monkeypatch):
     class LifecycleExporter(BaseExporter):
-        async def export_batch(self, event_batch):
+        async def export(self, event_batch):
             pass
 
         async def healthcheck(self):
@@ -629,7 +626,7 @@ async def test_exporter_lifecycle_register_healthcheck_and_shutdown(monkeypatch)
         def __init__(self):
             self.closed = False
 
-        async def export_batch(self, event_batch):
+        async def export(self, event_batch):
             pass
 
         async def healthcheck(self):
@@ -664,7 +661,7 @@ async def test_exporter_lifecycle_register_healthcheck_and_shutdown(monkeypatch)
 @pytest.mark.asyncio
 async def test_registry_reset_discards_lifecycle_snapshot(monkeypatch):
     class ResettableExporter(BaseExporter):
-        async def export_batch(self, event_batch):
+        async def export(self, event_batch):
             pass
 
         async def healthcheck(self):

@@ -4,7 +4,16 @@ This module provides a base class for all exporters, which can be extended to cr
 """
 from collections.abc import Sequence
 from abc import ABC, abstractmethod
-from typing import Callable, Optional, ParamSpec, TypeVar, cast, overload
+from typing import (
+    Callable,
+    Optional,
+    ParamSpec,
+    Protocol,
+    TypeVar,
+    cast,
+    overload,
+    runtime_checkable,
+)
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 import httpx
 from pathlib import Path
@@ -15,22 +24,22 @@ from aimonitor.configs.config import get_settings
 settings = get_settings()
 
 
+@runtime_checkable
+class ProtocolExporter(Protocol):
+    """Minimal interface required by an exporter registered with the registry."""
+
+    async def export(self, event_batch: Sequence[BaseSignal]) -> None:
+        """Export a batch of signals."""
+
+
 class BaseExporter(ABC):
     """
     Base class for all exporters. This class defines the interface that all exporters must implement.
     """
     SUPPORTED_SIGNALS: set[SignalType] = {SignalType.EVENT, SignalType.METRIC, SignalType.LOG, SignalType.SPAN, SignalType._INNER}  # logs everything
 
-    async def export(self, event: BaseSignal) -> None:
-        """
-        Export the given event to the desired format.
-
-        :param event: The event to be exported.
-        """
-        await self.export_batch(event_batch=[event])
-
     @abstractmethod
-    async def export_batch(self, event_batch: Sequence[BaseSignal]) -> None:
+    async def export(self, event_batch: Sequence[BaseSignal]) -> None:
         """
         Export the given batch of events to the desired format.
 
@@ -107,14 +116,8 @@ class HTTPBaseExporter(BaseExporter):
             await self.client.aclose()
             self.client = None
 
-    async def export(self, event: BaseSignal) -> None:
-        """
-        Abstract method of exportation
-        """
-        await self.export_batch(event_batch=[event])
-
     @abstractmethod
-    async def export_batch(self, event_batch: Sequence[BaseSignal]) -> None:
+    async def export(self, event_batch: Sequence[BaseSignal]) -> None:
         """
         Export in batches
         """

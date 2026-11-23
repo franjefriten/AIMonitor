@@ -215,7 +215,7 @@ healthcheck falla
     -> healthy o down
 ```
 
-Por eso no conviene reutilizar directamente el decorador de retries de `export_batch()`. Son políticas distintas, con límites, logs y consecuencias diferentes.
+Por eso no conviene reutilizar directamente el decorador de retries de `export()`. Son políticas distintas, con límites, logs y consecuencias diferentes.
 
 El contrato base podría incorporar una operación opcional:
 

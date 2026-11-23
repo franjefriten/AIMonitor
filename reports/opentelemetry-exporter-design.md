@@ -178,7 +178,7 @@ Crear únicamente los providers correspondientes a las señales habilitadas. `co
 
 ### 5.3 Enrutar los tipos de señal
 
-`export_batch()` puede hacer dispatch por modelo concreto, sin tratar cualquier señal como si tuviera los campos de `MCPEvent`:
+`export()` puede hacer dispatch por modelo concreto, sin tratar cualquier señal como si tuviera los campos de `MCPEvent`:
 
 ```python
 for event in event_batch:
