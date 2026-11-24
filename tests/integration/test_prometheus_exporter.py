@@ -330,6 +330,8 @@ async def test_prometheus_describe_reports_http_probe_failure(monkeypatch):
         await exporter.close()
 
 
+@pytest.mark.integration
+@pytest.mark.prometheus
 @pytest.mark.asyncio
 async def test_prometheus_exporter_requires_bearer_token_for_scrapes():
     port = _get_free_port()

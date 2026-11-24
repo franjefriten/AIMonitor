@@ -1,4 +1,6 @@
 from datetime import datetime, timedelta, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from threading import Thread
 from uuid import uuid4
 
 import pytest
@@ -236,3 +238,71 @@ async def test_opentelemetry_exporter_maps_metrics_and_logs(monkeypatch):
         "environment": "DEV",
         "version": "1.2",
     }
+
+
+@pytest.mark.integration
+@pytest.mark.opentelemetry
+@pytest.mark.asyncio
+async def test_opentelemetry_exporter_authenticates_with_bearer_token(
+    monkeypatch,
+):
+    pytest.importorskip(
+        "opentelemetry.exporter.otlp.proto.http.trace_exporter",
+        reason="The opentelemetry extra is required for this integration test",
+    )
+
+    token = "integration-test-token"
+    received_requests = []
+
+    class AuthenticatedOTLPReceiver(BaseHTTPRequestHandler):
+        def do_POST(self):
+            content_length = int(self.headers.get("Content-Length", "0"))
+            self.rfile.read(content_length)
+            authorization = self.headers.get("Authorization")
+            status = 200 if authorization == f"Bearer {token}" else 401
+            received_requests.append((self.path, authorization, status))
+            self.send_response(status)
+            self.send_header("Content-Type", "application/x-protobuf")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def log_message(self, format, *args):
+            pass
+
+    monkeypatch.setenv("OTEL_SDK_DISABLED", "false")
+    with ThreadingHTTPServer(("127.0.0.1", 0), AuthenticatedOTLPReceiver) as receiver:
+        receiver_thread = Thread(target=receiver.serve_forever, daemon=True)
+        receiver_thread.start()
+        exporter = OpenTelemetryExporter(
+            enabled=True,
+            endpoint=f"http://127.0.0.1:{receiver.server_port}",
+            headers={"Authorization": f"Bearer {token}"},
+            traces_enabled=True,
+        )
+        try:
+            await exporter.connect()
+            await exporter.export(
+                [
+                    MCPEvent(
+                        tool_name="authenticated-tool",
+                        args={},
+                        result={},
+                        metadata={},
+                        timestamp=datetime.now(timezone.utc),
+                        delta=0.01,
+                        status=Status.SUCCESS,
+                    )
+                ]
+            )
+        finally:
+            try:
+                await exporter.close()
+            finally:
+                receiver.shutdown()
+                receiver_thread.join()
+
+    assert received_requests
+    assert all(
+        request == ("/v1/traces", f"Bearer {token}", 200)
+        for request in received_requests
+    )

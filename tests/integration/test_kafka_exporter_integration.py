@@ -10,7 +10,7 @@ from uuid import uuid4
 import httpx
 import pytest
 import pytest_asyncio
-from confluent_kafka import aio
+from confluent_kafka import KafkaException, aio
 import json
 
 from aimonitor.core.event import Status
@@ -18,7 +18,7 @@ import aimonitor.core.decorators as decorators_module
 from aimonitor.core.decorators import monitor_tool
 from aimonitor.core.event import MCPEvent
 from aimonitor.core.registry import ExporterRegistry
-from aimonitor.exporters.kafka import KafkaExporter
+from aimonitor.exporters.kafka import KafkaExporter, KafkaHealthProbe
 from aimonitor.configs.config import get_settings
 from aimonitor.core.event import SignalType
 
@@ -49,6 +49,28 @@ async def kafka_container():
             _restart_kafka_container()
             if not await _wait_for_kafka(timeout=60):
                 pytest.fail("Kafka did not become available after restarting its container")
+
+
+@pytest_asyncio.fixture
+async def kafka_sasl_container():
+    if shutil.which("docker") is None:
+        pytest.skip("Docker is required for the Kafka SASL integration test")
+
+    container_name = _run_kafka_sasl_container()
+    try:
+        if not await _wait_for_kafka(port=_SASL_KAFKA_PORT, timeout=60):
+            pytest.fail("SASL Kafka broker did not become available")
+        yield
+    finally:
+        repo_root = Path(__file__).resolve().parents[2]
+        subprocess.run(
+            ["docker", "rm", "-f", container_name],
+            check=True,
+            capture_output=True,
+            text=True,
+            cwd=str(repo_root),
+            timeout=90,
+        )
 
 
 def _build_event(tool_name: str = "some_tool", status: Status = Status.SUCCESS, delta: float = 0.25) -> MCPEvent:
@@ -83,6 +105,66 @@ def _run_kafka_container() -> None:
         subprocess.run(["bash", str(script)], check=True, capture_output=True, text=True, cwd=str(repo_root), timeout=90)
 
 
+def _run_kafka_sasl_container() -> str:
+    repo_root = Path(__file__).resolve().parents[2]
+    container_name = f"aimonitor-kafka-sasl-{uuid4().hex[:8]}"
+    jaas_file = repo_root / "scripts" / "kafka" / "sasl" / "broker_jaas.conf"
+    subprocess.run(
+        [
+            "docker",
+            "run",
+            "-d",
+            "--name",
+            container_name,
+            "--hostname",
+            "localhost",
+            "-p",
+            f"{_SASL_KAFKA_PORT}:9094",
+            "--mount",
+            f"type=bind,source={jaas_file.resolve()},target=/etc/kafka/secrets/broker_jaas.conf,readonly",
+            "-e",
+            "KAFKA_NODE_ID=1",
+            "-e",
+            "KAFKA_PROCESS_ROLES=broker,controller",
+            "-e",
+            "KAFKA_CONTROLLER_QUORUM_VOTERS=1@localhost:29093",
+            "-e",
+            "KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,SASL_PLAINTEXT:SASL_PLAINTEXT,SASL_PLAINTEXT_HOST:SASL_PLAINTEXT",
+            "-e",
+            "KAFKA_ADVERTISED_LISTENERS=SASL_PLAINTEXT_HOST://localhost:9094,SASL_PLAINTEXT://localhost:19094",
+            "-e",
+            "KAFKA_LISTENERS=CONTROLLER://:29093,SASL_PLAINTEXT_HOST://:9094,SASL_PLAINTEXT://:19094",
+            "-e",
+            "KAFKA_INTER_BROKER_LISTENER_NAME=SASL_PLAINTEXT",
+            "-e",
+            "KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER",
+            "-e",
+            "KAFKA_SASL_ENABLED_MECHANISMS=PLAIN",
+            "-e",
+            "KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL=PLAIN",
+            "-e",
+            "KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1",
+            "-e",
+            "KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1",
+            "-e",
+            "KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1",
+            "-e",
+            "KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0",
+            "-e",
+            "KAFKA_LOG_DIRS=/tmp/kraft-combined-logs",
+            "-e",
+            "KAFKA_OPTS=-Djava.security.auth.login.config=/etc/kafka/secrets/broker_jaas.conf",
+            "apache/kafka:latest",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=str(repo_root),
+        timeout=120,
+    )
+    return container_name
+
+
 def _stop_kafka_container() -> None:
     repo_root = Path(__file__).resolve().parents[2]
     if os.name == "nt":
@@ -104,6 +186,9 @@ def _restart_kafka_container() -> None:
 
 
 _TEST_TOPIC = "aimonitor-events-{0}".format(uuid4())
+_SASL_KAFKA_PORT = 9094
+_SASL_KAFKA_USERNAME = "aimonitor"
+_SASL_KAFKA_PASSWORD = "integration-test-secret"
 
 # NOTE: this function assumes we are running kafka broker in port 9092 on localhost
 # check scripts/kafka/* for consistency with the Kafka broker configuration
@@ -441,3 +526,36 @@ exporters:
     await kafka_exporter.close()
     await kafka_exporter.close()
     await registry.shutdown()
+
+
+@pytest.mark.integration
+@pytest.mark.kafka
+@pytest.mark.asyncio
+async def test_kafka_exporter_authenticates_with_sasl_plaintext(kafka_sasl_container):
+    kafka_configs = {
+        "bootstrap.servers": f"localhost:{_SASL_KAFKA_PORT}",
+        "security.protocol": "SASL_PLAINTEXT",
+        "sasl.mechanism": "PLAIN",
+        "sasl.username": _SASL_KAFKA_USERNAME,
+        "sasl.password": _SASL_KAFKA_PASSWORD,
+        "client.id": "aimonitor-auth-integration-test",
+    }
+
+    invalid_probe = KafkaHealthProbe(
+        {**kafka_configs, "sasl.password": "invalid-test-password"}
+    )
+    try:
+        with pytest.raises(KafkaException):
+            await invalid_probe.check()
+    finally:
+        invalid_probe.close()
+
+    exporter = KafkaExporter(
+        kafka_configs=kafka_configs,
+        topics={SignalType.EVENT: _TEST_TOPIC},
+    )
+    try:
+        assert await exporter.healthcheck() is True
+        await exporter.export([_build_event(tool_name="authenticated-tool")])
+    finally:
+        await exporter.close()
