@@ -248,8 +248,8 @@ class KafkaExporterSettings(BaseModel):
     bootstrap_servers: Optional[str] = Field(default=None)
     security_protocol: Optional[str] = Field(default=None)
     sasl_mechanism: Optional[str] = Field(default=None)
-    sasl_username: Optional[str] = Field(default=None)
-    sasl_password: Optional[str] = Field(default=None)
+    sasl_username: Optional[SecretStr] = Field(default=None)
+    sasl_password: Optional[SecretStr] = Field(default=None)
     group_id: str = Field(default="aimonitor-group")
     auto_offset_reset: Optional[str] = Field(default=None)
     retry_policy: Optional[int] = Field(default=None)
@@ -1192,8 +1192,8 @@ class AIMonitorSettings(BaseSettings):
                 bootstrap_servers=self.kafka_bootstrap_servers,
                 security_protocol=self.kafka_security_protocol,
                 sasl_mechanism=self.kafka_sasl_mechanism,
-                sasl_username=self._unwrap_secret(self.kafka_sasl_username),
-                sasl_password=self._unwrap_secret(self.kafka_sasl_password),
+                sasl_username=self.kafka_sasl_username,
+                sasl_password=self.kafka_sasl_password,
                 group_id=self.kafka_group_id,
                 auto_offset_reset=self.kafka_auto_offset_reset,
                 retry_policy=self.kafka_retry_policy,

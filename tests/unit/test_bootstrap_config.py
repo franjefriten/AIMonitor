@@ -249,6 +249,10 @@ exporters:
     assert settings.exporters.kafka.topics.metric == "aimonitor.metrics"
     assert settings.exporters.kafka.topics.log == "aimonitor.logs"
     assert settings.exporters.kafka.topics.span == "aimonitor.spans"
+    assert settings.exporters.kafka.sasl_username.get_secret_value() == "demo-user"
+    assert settings.exporters.kafka.sasl_password.get_secret_value() == "demo-pass"
+    assert "demo-user" not in repr(settings.exporters.kafka)
+    assert "demo-pass" not in repr(settings.exporters.kafka)
     assert settings.exporters.kafka.producer.acks == "all"
     assert settings.exporters.kafka.producer.compression == "gzip"
     assert settings.exporters.kafka.producer.linger_ms == 25
@@ -394,8 +398,10 @@ async def test_json_loader_reads_kafka_settings(tmp_path):
     assert settings.exporters.kafka.bootstrap_servers == "localhost:9092"
     assert settings.exporters.kafka.security_protocol == "SASL_SSL"
     assert settings.exporters.kafka.sasl_mechanism == "PLAIN"
-    assert settings.exporters.kafka.sasl_username == "json-user"
-    assert settings.exporters.kafka.sasl_password == "json-pass"
+    assert settings.exporters.kafka.sasl_username.get_secret_value() == "json-user"
+    assert settings.exporters.kafka.sasl_password.get_secret_value() == "json-pass"
+    assert "json-user" not in repr(settings.exporters.kafka)
+    assert "json-pass" not in repr(settings.exporters.kafka)
     assert settings.exporters.kafka.group_id == "aimonitor-json-group"
     assert settings.exporters.kafka.auto_offset_reset == "latest"
     assert settings.exporters.kafka.retry_policy == 4
