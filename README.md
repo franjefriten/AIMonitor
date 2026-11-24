@@ -224,13 +224,12 @@ AIMonitor supports Python 3.10–3.14. Optional exporters need their correspondi
 | Prometheus (`prometheus-client`) | `0.20.0` |
 | Kafka (`confluent-kafka`) | `2.13.0` |
 
-CI checks every supported Python version, but it does not run the full suite with minimum dependency versions on every version:
+CI runs the unit and integration suites on every supported Python version with both dependency sets:
 
-| Python version | What CI checks |
-| -------------- | -------------- |
-| 3.10 | Full unit and integration suite with minimum optional dependency versions |
-| 3.11–3.13 | Unit tests and optional dependency imports with current releases |
-| 3.14 | Full unit and integration suite with current releases; publishing tests |
+| Dependency set | Python versions | What CI checks |
+| -------------- | --------------- | -------------- |
+| Minimum | 3.10–3.14 | All unit and integration tests except those marked `opentelemetry` |
+| Latest | 3.10–3.14 | All unit and integration tests, including OpenTelemetry tests |
 
 OpenTelemetry 1.24 is incompatible with Python 3.14: its Protobuf constraint can select Protobuf 4.25.9, which fails to import on that Python version. For Python 3.14, install OpenTelemetry SDK 1.35.0 or newer; AIMonitor raises `OpenTelemetryCompatibilityError` if an older SDK is installed. Python 3.10–3.13 can use the 1.24.0 minimum.
 
