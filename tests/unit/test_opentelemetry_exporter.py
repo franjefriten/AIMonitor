@@ -12,7 +12,7 @@ from aimonitor.core.exceptions import (
 )
 from aimonitor.exporters.opentelemetry import OpenTelemetryExporter
 
-
+@pytest.mark.opentelemetry
 def test_opentelemetry_exporter_disabled_is_noop():
     exporter = OpenTelemetryExporter(enabled=False)
 
@@ -23,6 +23,7 @@ def test_opentelemetry_exporter_disabled_is_noop():
     assert asyncio.run(exporter.healthcheck()) is False
 
 
+@pytest.mark.opentelemetry
 def test_opentelemetry_exporter_with_no_signals_is_noop():
     exporter = OpenTelemetryExporter(enabled=True)
 
@@ -34,6 +35,7 @@ def test_opentelemetry_exporter_with_no_signals_is_noop():
     assert asyncio.run(exporter.healthcheck()) is True
 
 
+@pytest.mark.opentelemetry
 def test_opentelemetry_exporter_rejects_invalid_endpoint():
     exporter = OpenTelemetryExporter(
         enabled=True,
@@ -45,6 +47,7 @@ def test_opentelemetry_exporter_rejects_invalid_endpoint():
         asyncio.run(exporter.connect())
 
 
+@pytest.mark.opentelemetry
 def test_opentelemetry_exporter_requires_otlp_http_dependency():
     exporter = OpenTelemetryExporter(enabled=True, traces_enabled=True)
     real_import = __import__
@@ -59,6 +62,7 @@ def test_opentelemetry_exporter_requires_otlp_http_dependency():
             asyncio.run(exporter.connect())
 
 
+@pytest.mark.opentelemetry
 def test_opentelemetry_exporter_rejects_incompatible_sdk_on_python_314(monkeypatch):
     exporter = OpenTelemetryExporter(enabled=True, traces_enabled=True)
     monkeypatch.setattr(otel_exporter_module, "version_info", (3, 14, 0))
@@ -71,6 +75,7 @@ def test_opentelemetry_exporter_rejects_incompatible_sdk_on_python_314(monkeypat
         asyncio.run(exporter.connect())
 
 
+@pytest.mark.opentelemetry
 def test_pending_spans_are_bounded_and_oldest_are_discarded(monkeypatch):
     exporter = OpenTelemetryExporter(enabled=True, traces_enabled=True)
     state = exporter._trace_state("trace")
@@ -91,6 +96,7 @@ def test_pending_spans_are_bounded_and_oldest_are_discarded(monkeypatch):
     assert state.pending_spans[0][0].span_id == "span-1"
 
 
+@pytest.mark.opentelemetry
 def test_pending_spans_expire_after_five_minutes(monkeypatch):
     current_time = [10.0]
     monkeypatch.setattr(

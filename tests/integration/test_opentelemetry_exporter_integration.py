@@ -15,8 +15,8 @@ from aimonitor.core.event import (
 from aimonitor.core.registry import registry
 from aimonitor.exporters.opentelemetry import OpenTelemetryExporter
 
-
 @pytest.mark.integration
+@pytest.mark.opentelemetry
 @pytest.mark.asyncio
 async def test_opentelemetry_exporter_builds_private_nested_trace(monkeypatch):
     pytest.importorskip(
@@ -121,6 +121,7 @@ async def test_opentelemetry_exporter_builds_private_nested_trace(monkeypatch):
 
 
 @pytest.mark.integration
+@pytest.mark.opentelemetry
 @pytest.mark.asyncio
 async def test_opentelemetry_exporter_maps_metrics_and_logs(monkeypatch):
     pytest.importorskip(
