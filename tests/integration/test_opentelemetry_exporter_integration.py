@@ -28,10 +28,16 @@ async def test_opentelemetry_exporter_builds_private_nested_trace(monkeypatch):
     import opentelemetry.exporter.otlp.proto.http.trace_exporter as otlp_trace_exporter
 
     memory_exporter = InMemorySpanExporter()
+    received_headers = {}
+
+    def create_otlp_exporter(endpoint, headers=None):
+        received_headers.update(headers or {})
+        return memory_exporter
+
     monkeypatch.setattr(
         otlp_trace_exporter,
         "OTLPSpanExporter",
-        lambda endpoint: memory_exporter,
+        create_otlp_exporter,
     )
     monkeypatch.setenv("OTEL_SDK_DISABLED", "false")
     global_provider = trace.get_tracer_provider()
@@ -41,9 +47,13 @@ async def test_opentelemetry_exporter_builds_private_nested_trace(monkeypatch):
         enabled=True,
         service_name="integration-test",
         span_prefix="mcp.tool",
+        headers={"Authorization": "Bearer integration-token"},
         traces_enabled=True,
     )
     await exporter.connect()
+    assert received_headers == {
+        "Authorization": "Bearer integration-token"
+    }
     timestamp = datetime(2025, 1, 1, 12, 0, tzinfo=timezone.utc)
     trace_id = str(uuid4())
     parent = SpanEvent(
@@ -126,15 +136,24 @@ async def test_opentelemetry_exporter_maps_metrics_and_logs(monkeypatch):
     import opentelemetry.sdk.metrics.export as sdk_metric_export
 
     log_exporter = InMemoryLogRecordExporter()
+    received_headers = {}
     metric_readers = []
+
+    def create_log_exporter(endpoint, headers=None):
+        received_headers["logs"] = headers
+        return log_exporter
+
+    def create_metric_exporter(endpoint, headers=None):
+        received_headers["metrics"] = headers
+        return object()
 
     def make_metric_reader(exporter, export_interval_millis):
         reader = InMemoryMetricReader()
         metric_readers.append(reader)
         return reader
 
-    monkeypatch.setattr(_log_exporter, "OTLPLogExporter", lambda endpoint: log_exporter)
-    monkeypatch.setattr(metric_exporter, "OTLPMetricExporter", lambda endpoint: object())
+    monkeypatch.setattr(_log_exporter, "OTLPLogExporter", create_log_exporter)
+    monkeypatch.setattr(metric_exporter, "OTLPMetricExporter", create_metric_exporter)
     monkeypatch.setattr(
         sdk_metric_export,
         "PeriodicExportingMetricReader",
@@ -143,10 +162,15 @@ async def test_opentelemetry_exporter_maps_metrics_and_logs(monkeypatch):
     exporter = OpenTelemetryExporter(
         enabled=True,
         service_name="signal-test",
+        headers={"X-Api-Key": "integration-api-key"},
         metrics_enabled=True,
         logs_enabled=True,
     )
     await exporter.connect()
+    assert received_headers == {
+        "logs": {"X-Api-Key": "integration-api-key"},
+        "metrics": {"X-Api-Key": "integration-api-key"},
+    }
 
     try:
         await exporter.export(

@@ -21,6 +21,7 @@ def clear_aimonitor_env(monkeypatch):
 @pytest.mark.asyncio
 async def test_initialize_monitor_uses_valid_runtime_fields(tmp_path, monkeypatch):
     monkeypatch.setenv("PROMETHEUS_BOOTSTRAP_TOKEN", "bootstrap-scrape-token")
+    monkeypatch.setenv("OTEL_BOOTSTRAP_TOKEN", "bootstrap-otel-token")
     config_path = tmp_path / "aimonitor.yaml"
     config_path.write_text(
         """
@@ -44,6 +45,8 @@ exporters:
     service_name: "aimonitor-test"
     span_prefix: "mcp.test"
     endpoint: "https://otel.example:4318/base"
+    headers:
+      Authorization: "Bearer $secrets.OTEL_BOOTSTRAP_TOKEN"
     signals:
       traces: true
       metrics: true
@@ -68,6 +71,11 @@ exporters:
     assert settings.exporters.otel.signals.metrics is True
     assert settings.exporters.otel.signals.logs is False
     assert settings.exporters.otel.metrics_export_interval_ms == 15000
+    assert (
+        settings.exporters.otel.headers["Authorization"].get_secret_value()
+        == "Bearer bootstrap-otel-token"
+    )
+    assert "bootstrap-otel-token" not in repr(settings.exporters.otel)
 
     class PrometheusStub(BaseExporter):
         def __init__(self, address: str, bearer_token: str | None = None):
@@ -123,6 +131,9 @@ exporters:
     )
     assert otel_exporter.connected is True
     assert otel_exporter.options["endpoint"] == "https://otel.example:4318/base"
+    assert otel_exporter.options["headers"] == {
+        "Authorization": "Bearer bootstrap-otel-token"
+    }
     assert otel_exporter.options["traces_enabled"] is True
     assert otel_exporter.options["metrics_enabled"] is True
     assert otel_exporter.options["logs_enabled"] is False
@@ -352,6 +363,7 @@ async def test_json_loader_reads_kafka_settings(tmp_path):
                     "otel": {
                         "enabled": True,
                         "endpoint": "http://otel-json:4318",
+                        "headers": {"X-Api-Key": "json-otel-key"},
                         "signals": {
                             "traces": True,
                             "metrics": False,
@@ -419,6 +431,11 @@ async def test_json_loader_reads_kafka_settings(tmp_path):
     assert settings.exporters.kafka.producer.batch_size == 512
     assert settings.exporters.otel.enabled is True
     assert settings.exporters.otel.endpoint == "http://otel-json:4318"
+    assert (
+        settings.exporters.otel.headers["X-Api-Key"].get_secret_value()
+        == "json-otel-key"
+    )
+    assert "json-otel-key" not in repr(settings.exporters.otel)
     assert settings.exporters.otel.signals.traces is True
     assert settings.exporters.otel.signals.metrics is False
     assert settings.exporters.otel.signals.logs is True

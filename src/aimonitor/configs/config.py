@@ -167,6 +167,22 @@ def _resolve_secret_references(value: Any) -> Any:
     return _SECRET_REFERENCE_PATTERN.sub(replace_reference, value)
 
 
+def _wrap_secret_headers(value: Any) -> dict[str, SecretStr]:
+    if not isinstance(value, dict):
+        raise ValueError("OTLP headers must be a mapping of names to string values.")
+    if any(
+        not isinstance(name, str)
+        or not name
+        or not isinstance(header_value, str)
+        for name, header_value in value.items()
+    ):
+        raise ValueError("OTLP header names must be non-empty and values must be strings.")
+    return {
+        name: SecretStr(header_value)
+        for name, header_value in value.items()
+    }
+
+
 LOGGING_CONFIG = {
     "version": 1,
     "disable_existing_config_loggers": False,
@@ -297,6 +313,7 @@ class OpenTelemetryExporterSettings(BaseModel):
     service_name: str = Field(default="aimonitor-mcp")
     span_prefix: str = Field(default="mcp.tool")
     endpoint: str = Field(default="http://localhost:4318")
+    headers: dict[str, SecretStr] = Field(default_factory=dict)
     signals: OpenTelemetrySignalsSettings = Field(default_factory=OpenTelemetrySignalsSettings)
     metrics_export_interval_ms: int = Field(default=60_000, ge=1)
 
@@ -656,6 +673,7 @@ class AIMonitorSettings(BaseSettings):
         validation_alias=AliasChoices(*_OTEL_MCP_SPAN_PREFIX_ALIASES),
     )
     otel_endpoint: str = Field(default="http://localhost:4318")
+    otel_headers: dict[str, SecretStr] = Field(default_factory=dict)
     otel_traces_enabled: bool = Field(default=False)
     otel_metrics_enabled: bool = Field(default=False)
     otel_logs_enabled: bool = Field(default=False)
@@ -864,6 +882,9 @@ class AIMonitorSettings(BaseSettings):
                 otel_endpoint = otel.get("endpoint")
                 if otel_endpoint is not None:
                     flattened_data["otel_endpoint"] = otel_endpoint
+                otel_headers = otel.get("headers")
+                if otel_headers is not None:
+                    flattened_data["otel_headers"] = _wrap_secret_headers(otel_headers)
                 otel_signals = otel.get("signals", {})
                 for signal_name in ("traces", "metrics", "logs"):
                     if signal_name in otel_signals:
@@ -1094,6 +1115,9 @@ class AIMonitorSettings(BaseSettings):
                 otel_endpoint = otel.get("endpoint")
                 if otel_endpoint is not None:
                     flattened_data["otel_endpoint"] = otel_endpoint
+                otel_headers = otel.get("headers")
+                if otel_headers is not None:
+                    flattened_data["otel_headers"] = _wrap_secret_headers(otel_headers)
                 otel_signals = otel.get("signals", {})
                 for signal_name in ("traces", "metrics", "logs"):
                     if signal_name in otel_signals:
@@ -1224,6 +1248,7 @@ class AIMonitorSettings(BaseSettings):
                 service_name=self.otel_mcp_service_name,
                 span_prefix=self.otel_mcp_span_prefix,
                 endpoint=self.otel_endpoint,
+                headers=self.otel_headers,
                 signals=OpenTelemetrySignalsSettings(
                     traces=self.otel_traces_enabled,
                     metrics=self.otel_metrics_enabled,

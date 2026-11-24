@@ -108,6 +108,8 @@ exporters:
     service_name: "aimonitor-test"
     span_prefix: "mcp.test"
     endpoint: "http://localhost:4318"
+    headers:
+      Authorization: "Bearer $secrets.OTEL_EXPORTER_TOKEN"
     signals:
       traces: true
       metrics: false
@@ -232,6 +234,7 @@ The most relevant defaults are:
 | `exporters.otel`           | `service_name`         | `aimonitor-mcp`                                            |
 | `exporters.otel`           | `span_prefix`          | `mcp.tool`                                                 |
 | `exporters.otel`           | `endpoint`              | `http://localhost:4318`                                    |
+| `exporters.otel`           | `headers`               | Empty mapping; values are masked `SecretStr` values        |
 | `exporters.otel.signals`   | `traces`                | `false`                                                    |
 | `exporters.otel.signals`   | `metrics`               | `false`                                                    |
 | `exporters.otel.signals`   | `logs`                  | `false`                                                    |

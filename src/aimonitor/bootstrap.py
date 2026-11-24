@@ -64,6 +64,10 @@ async def initialize_monitor(config_path: str | Path | None = None) -> AIMonitor
             service_name=settings.exporters.otel.service_name,
             span_prefix=settings.exporters.otel.span_prefix,
             endpoint=settings.exporters.otel.endpoint,
+            headers={
+                name: value.get_secret_value()
+                for name, value in settings.exporters.otel.headers.items()
+            },
             traces_enabled=settings.exporters.otel.signals.traces,
             metrics_enabled=settings.exporters.otel.signals.metrics,
             logs_enabled=settings.exporters.otel.signals.logs,

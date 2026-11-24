@@ -520,6 +520,7 @@ exporter = OpenTelemetryExporter(
     service_name="checkout-agent",
     span_prefix="mcp.tool",
     endpoint="http://localhost:4318",
+    headers={"Authorization": "Bearer <token>"},
     traces_enabled=True,
     metrics_enabled=True,
     logs_enabled=True,
@@ -538,12 +539,17 @@ exporters:
     service_name: "checkout-agent"
     span_prefix: "mcp.tool"
     endpoint: "http://localhost:4318"
+    headers:
+      Authorization: "Bearer $secrets.OTEL_EXPORTER_TOKEN"
     signals:
       traces: true
       metrics: true
       logs: false
     metrics_export_interval_ms: 60000
 ```
+
+`headers` is passed to the OTLP/HTTP trace, metric, and log exporters. Use it for Bearer tokens or backend-specific API-key headers. Header values are stored as `SecretStr` in settings; YAML secret references are resolved from the process environment. Avoid sending credentials over plain HTTP outside a trusted local network; use HTTPS for remote collectors.
+Alternatively, set `AIMONITOR_OTEL_HEADERS` to a JSON object in the process environment.
 
 Install the optional dependency:
 

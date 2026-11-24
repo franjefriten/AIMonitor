@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, version
 from sys import version_info
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 from urllib.parse import urlparse
 
@@ -59,6 +59,7 @@ class OpenTelemetryExporter(BaseExporter):
         service_name: str = "aimonitor-mcp",
         span_prefix: str = "mcp.tool",
         endpoint: str = "http://localhost:4318",
+        headers: Mapping[str, str] | None = None,
         traces_enabled: bool = False,
         metrics_enabled: bool = False,
         logs_enabled: bool = False,
@@ -68,6 +69,7 @@ class OpenTelemetryExporter(BaseExporter):
         self.service_name = service_name
         self.span_prefix = span_prefix
         self.endpoint = endpoint
+        self.headers = dict(headers) if headers is not None else {}
         self.traces_enabled = bool(traces_enabled)
         self.metrics_enabled = bool(metrics_enabled)
         self.logs_enabled = bool(logs_enabled)
@@ -167,19 +169,26 @@ class OpenTelemetryExporter(BaseExporter):
 
         resource = Resource.create({"service.name": self.service_name})
         base_endpoint = self.endpoint.rstrip("/")
+        otlp_options = {"headers": self.headers} if self.headers else {}
         try:
             if self.traces_enabled:
                 self._tracer_provider = TracerProvider(resource=resource)
                 self._tracer_provider.add_span_processor(
                     BatchSpanProcessor(
-                        OTLPSpanExporter(endpoint=f"{base_endpoint}/v1/traces")
+                        OTLPSpanExporter(
+                            endpoint=f"{base_endpoint}/v1/traces",
+                            **otlp_options,
+                        )
                     )
                 )
                 self.tracer = self._tracer_provider.get_tracer("aimonitor")
 
             if self.metrics_enabled:
                 metric_reader = PeriodicExportingMetricReader(
-                    OTLPMetricExporter(endpoint=f"{base_endpoint}/v1/metrics"),
+                    OTLPMetricExporter(
+                        endpoint=f"{base_endpoint}/v1/metrics",
+                        **otlp_options,
+                    ),
                     export_interval_millis=self.metrics_export_interval_ms,
                 )
                 self._meter_provider = MeterProvider(
@@ -192,7 +201,10 @@ class OpenTelemetryExporter(BaseExporter):
                 self._logger_provider = LoggerProvider(resource=resource)
                 self._logger_provider.add_log_record_processor(
                     BatchLogRecordProcessor(
-                        OTLPLogExporter(endpoint=f"{base_endpoint}/v1/logs")
+                        OTLPLogExporter(
+                            endpoint=f"{base_endpoint}/v1/logs",
+                            **otlp_options,
+                        )
                     )
                 )
                 self.otel_logger = self._logger_provider.get_logger("aimonitor")
