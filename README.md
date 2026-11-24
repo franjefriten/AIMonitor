@@ -8,33 +8,12 @@
 
 AIMonitor tracks tool execution, exports monitoring events, and supports **OpenTelemetry** integration alongside file, SQLite, and Prometheus backends.
 
-## Python and optional exporter dependencies
-
-AIMonitor supports Python 3.10–3.14. CI tests every version; the full minimum-dependency suite runs on Python 3.10, and the full latest-dependency suite runs on Python 3.14. The latest-dependency jobs resolve current releases at run time, while the minimum versions are:
-
-| Exporter extra | Minimum dependency |
-| ---------------- | ------------------ |
-| OpenTelemetry (API, SDK, OTLP/HTTP exporter), Python <3.14 | `1.24.0` |
-| OpenTelemetry (API, SDK, OTLP/HTTP exporter), Python 3.14 | `1.35.0` |
-| SQLite (`aiosqlite`) | `0.21.0` |
-| Prometheus (`prometheus-client`) | `0.20.0` |
-| Kafka (`confluent-kafka`) | `2.13.0` |
-
-| Python version | Minimum dependencies | Latest dependencies |
-| -------------- | -------------------- | ------------------- |
-| 3.10 | Full unit and integration suite | Optional-import CI |
-| 3.11 | Not in minimum matrix | Unit and optional-import CI |
-| 3.12 | Not in minimum matrix | Unit and optional-import CI |
-| 3.13 | Not in minimum matrix | Unit and optional-import CI |
-| 3.14 | Not in minimum matrix | Full unit and integration suite; publishing tests |
-
-OpenTelemetry 1.24 is incompatible with Python 3.14: its Protobuf constraint can select Protobuf 4.25.9, which fails to import on that Python version. Therefore the OpenTelemetry extra requires SDK 1.35.0 or newer on Python 3.14; AIMonitor raises `OpenTelemetryCompatibilityError` for an older installed SDK. This version-specific minimum preserves the older minimum for Python 3.10–3.13.
-
 ## ✨ Features
 
 - 🎯 **Tool Monitoring** — Automatic event capture with `@monitor_tool` decorator
 - 📤 **Multiple Exporters** — File, SQLite, Prometheus, Redis, Kafka, Webhook, OpenTelemetry
 - 🔐 **Sensitive Data Redaction** — Automatically masks API keys and secrets
+- 🛡️ **Authentication for exporters** — The sdk provides an authentication layer for safe monitoring 
 - 🧠 **Internal Telemetry** — Optional SDK observability via OpenTelemetry
 - ⚡ **Async-first** — Built for async workflows
 - 🛠️ **Extensible** — Simple interface for custom exporters
@@ -232,6 +211,28 @@ python -m pytest tests/ -v
 ```
 
 Tests run automatically on every PR to `main`. Scripts for batch/Powershell are also found under the  `/batch` subfolder for test running
+
+## Python compatibility and optional exporter dependencies
+
+AIMonitor supports Python 3.10–3.14. Optional exporters need their corresponding dependencies; you can install them with extras such as `ai-monitor-sdk[opentelemetry,sqlite]`. The minimum dependency versions covered by the test setup are:
+
+| Exporter extra | Minimum dependency |
+| ---------------- | ------------------ |
+| OpenTelemetry (API, SDK, OTLP/HTTP exporter), Python <3.14 | `1.24.0` |
+| OpenTelemetry (API, SDK, OTLP/HTTP exporter), Python 3.14 | `1.35.0` |
+| SQLite (`aiosqlite`) | `0.21.0` |
+| Prometheus (`prometheus-client`) | `0.20.0` |
+| Kafka (`confluent-kafka`) | `2.13.0` |
+
+CI checks every supported Python version, but it does not run the full suite with minimum dependency versions on every version:
+
+| Python version | What CI checks |
+| -------------- | -------------- |
+| 3.10 | Full unit and integration suite with minimum optional dependency versions |
+| 3.11–3.13 | Unit tests and optional dependency imports with current releases |
+| 3.14 | Full unit and integration suite with current releases; publishing tests |
+
+OpenTelemetry 1.24 is incompatible with Python 3.14: its Protobuf constraint can select Protobuf 4.25.9, which fails to import on that Python version. For Python 3.14, install OpenTelemetry SDK 1.35.0 or newer; AIMonitor raises `OpenTelemetryCompatibilityError` if an older SDK is installed. Python 3.10–3.13 can use the 1.24.0 minimum.
 
 ## 📦 Deployment
 
