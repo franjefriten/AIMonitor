@@ -329,6 +329,7 @@ registry.register(exporter)
 - Uses a 10-second export timeout and the shared retry policy for connection or timeout errors.
 
 The HTTP base client has a one-second default timeout, while the export call passes an explicit ten-second timeout.
+`describe()` reports only the exporter's status and message; it does not include the URL, headers, or authentication configuration, which may contain secrets.
 
 ### Health and recovery
 
@@ -368,7 +369,24 @@ exporters:
   prometheus:
     enabled: true
     url: "http://0.0.0.0:9000"
+    bearer_token: "$secrets.PROMETHEUS_SCRAPE_TOKEN"
 ```
+
+When `bearer_token` is configured, `/metrics` requires an `Authorization: Bearer <token>` header and returns `401 Unauthorized` otherwise. The token can be supplied through the YAML secret reference or `AIMONITOR_PROMETHEUS_BEARER_TOKEN`. Without a token, the endpoint remains unauthenticated for backwards compatibility.
+
+Configure Prometheus to send the same token when scraping:
+
+```yaml
+scrape_configs:
+  - job_name: "aimonitor"
+    static_configs:
+      - targets: ["aimonitor:9000"]
+    authorization:
+      type: Bearer
+      credentials_file: /run/secrets/prometheus-scrape-token
+```
+
+The exporter serves HTTP, so bearer credentials are not encrypted in transit. Keep the endpoint on a trusted private network or put it behind a TLS-terminating reverse proxy when traffic crosses an untrusted network.
 
 Install the dependency:
 

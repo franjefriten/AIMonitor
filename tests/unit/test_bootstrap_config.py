@@ -20,6 +20,7 @@ def clear_aimonitor_env(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_initialize_monitor_uses_valid_runtime_fields(tmp_path, monkeypatch):
+    monkeypatch.setenv("PROMETHEUS_BOOTSTRAP_TOKEN", "bootstrap-scrape-token")
     config_path = tmp_path / "aimonitor.yaml"
     config_path.write_text(
         """
@@ -34,6 +35,7 @@ exporters:
   prometheus:
     enabled: true
     url: "http://localhost:9000"
+    bearer_token: "$secrets.PROMETHEUS_BOOTSTRAP_TOKEN"
   file:
     enabled: true
     file_path: "./tmp_runtime_logs"
@@ -68,8 +70,9 @@ exporters:
     assert settings.exporters.otel.metrics_export_interval_ms == 15000
 
     class PrometheusStub(BaseExporter):
-        def __init__(self, address: str):
+        def __init__(self, address: str, bearer_token: str | None = None):
             self.address = address
+            self.bearer_token = bearer_token
 
         def export(self, event_batch):
             return super().export(event_batch)
@@ -107,6 +110,12 @@ exporters:
     initialized = await initialize_monitor(config_path)
     assert initialized.prometheus_enabled is True
     assert initialized.file_enabled is True
+    prometheus_exporter = next(
+        exporter
+        for exporter in registry.exporters
+        if isinstance(exporter, PrometheusStub)
+    )
+    assert prometheus_exporter.bearer_token == "bootstrap-scrape-token"
     otel_exporter = next(
         exporter
         for exporter in registry.exporters
@@ -303,6 +312,30 @@ exporters:
         match="Required secret environment variable 'MISSING_KAFKA_PASSWORD' is not set",
     ):
         await settings.load_from_yaml(config_path)
+
+
+@pytest.mark.asyncio
+async def test_prometheus_bearer_token_is_loaded_as_a_secret(tmp_path, monkeypatch):
+    monkeypatch.setenv("PROMETHEUS_SCRAPE_TOKEN", "test-scrape-token")
+    config_path = tmp_path / "prometheus_auth.yaml"
+    config_path.write_text(
+        """
+exporters:
+  prometheus:
+    enabled: true
+    url: "http://localhost:9000"
+    bearer_token: "$secrets.PROMETHEUS_SCRAPE_TOKEN"
+""".strip()
+    )
+
+    settings = AIMonitorSettings()
+    await settings.load_from_yaml(config_path)
+
+    assert (
+        settings.exporters.prometheus.bearer_token.get_secret_value()
+        == "test-scrape-token"
+    )
+    assert "test-scrape-token" not in repr(settings.exporters.prometheus)
 
 
 @pytest.mark.asyncio

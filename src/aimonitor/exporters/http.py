@@ -67,9 +67,6 @@ class WebhookExporter(HTTPBaseExporter):
         return {
             "status": "healthy",
             "message": "WebhookExporter is operational.",
-            "url": self.url,
-            "headers": self.headers,
-            "auth": str(self.auth) if self.auth else None,
         }
     
     async def recover(self) -> bool:

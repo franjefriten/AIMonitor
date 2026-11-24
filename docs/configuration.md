@@ -70,6 +70,7 @@ export KAFKA_PASSWORD="..."
 ```
 
 The name after `$secrets.` is looked up exactly as written; it does not use the `AIMONITOR_` prefix. YAML loading fails explicitly if the variable is missing or empty. This syntax is supported when loading YAML; JSON loading does not resolve it.
+Prometheus exporter settings can also be supplied directly through `AIMONITOR_PROMETHEUS_BEARER_TOKEN`.
 
 ## YAML configuration
 
@@ -96,6 +97,7 @@ exporters:
   prometheus:
     enabled: true
     url: "http://localhost:9000"
+    bearer_token: "$secrets.PROMETHEUS_SCRAPE_TOKEN"
 
   file:
     enabled: true

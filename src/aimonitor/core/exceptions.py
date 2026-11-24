@@ -41,6 +41,21 @@ class ConfigurationError(AIMonitorError):
         return f"ConfigurationError: {self.message}"
 
 
+class EnvSecretNotFoundError(ConfigurationError):
+    """
+    Exception raised when a given $secrets.ENV_SECRET_KEY is not found within the environment secrets.
+    When raised, make sure your secret is found within the env file as is.
+    """
+    def __init__(self, message: str):
+        self.message = message
+        super().__init__(f"Configuration error: {message}")
+
+    def __repr__(self):
+        return f"ConfigurationError(message={self.message})"
+
+    def __str__(self):
+        return f"ConfigurationError: {self.message}"
+
 class ExporterConfigurationError(AIMonitorError):
     """
     Exception raised for errors in the configuration of an exporter within the AIMonitor application.

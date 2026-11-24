@@ -73,7 +73,17 @@ async def initialize_monitor(config_path: str | Path | None = None) -> AIMonitor
         exporters.append(otel_exporter)
 
     if settings.exporters.prometheus.enabled and settings.exporters.prometheus.url is not None:
-        exporters.append(PrometheusExporter(address=str(settings.exporters.prometheus.url)))
+        bearer_token = settings.exporters.prometheus.bearer_token
+        exporters.append(
+            PrometheusExporter(
+                address=str(settings.exporters.prometheus.url),
+                bearer_token=(
+                    bearer_token.get_secret_value()
+                    if bearer_token is not None
+                    else None
+                ),
+            )
+        )
 
     if settings.exporters.file.enabled and settings.exporters.file.path is not None:
         exporters.append(FileExporter(settings.exporters.file.path))

@@ -17,12 +17,15 @@ from typing_extensions import Self
 import logging
 from logging import getLogger, config
 
+from aimonitor.core.exceptions import EnvSecretNotFoundError
+
 _VALID_URLS = ["mongodb://", "redis://", "postgres://", "postgresql://", "http://", "https://"]
 
 _REDIS_URL_ALIASES = frozenset({"redis_url", "redis-url", "redisUrl"})
 _MONGODB_URL_ALIASES = frozenset({"mongodb_url", "mongodb-url", "mongodbUrl"})
 _POSTGRES_URL_ALIASES = frozenset({"postgres_url", "postgres-url", "postgresUrl"})
 _PROMETHEUS_URL_ALIASES = frozenset({"prometheus_url", "prometheus-url", "prometheusUrl"})
+_PROMETHEUS_BEARER_TOKEN_ALIASES = frozenset({"prometheus_bearer_token", "prometheus-bearer-token", "prometheusBearerToken"})
 _SQLITE_URI_ALIASES = frozenset({"sqlite_uri", "sqlite-uri", "sqliteUri"})
 _MAX_MB_PER_FILE_ALIASES = frozenset({"max_mb_per_file", "max-mb-per-file", "maxMbPerFile", "max_mb", "max-mb", "maxMb"})
 _ENV_CODE_ALIASES = frozenset({"env", "envCode", "env-code", "env_code", "environment"})
@@ -148,9 +151,9 @@ def _resolve_secret_references(value: Any) -> Any:
 
     references = list(_SECRET_REFERENCE_PATTERN.finditer(value))
     if value.count(_SECRET_REFERENCE_PREFIX) != len(references):
-        raise ValueError(
+        raise EnvSecretNotFoundError(
             "Invalid secret reference; expected '$secrets.ENV_VAR_NAME'."
-        )
+        ) 
 
     def replace_reference(match: re.Match[str]) -> str:
         env_name = match.group(1)
@@ -269,6 +272,7 @@ class RedisExporterSettings(BaseModel):
 class PrometheusExporterSettings(BaseModel):
     enabled: bool = Field(default=False)
     url: Optional[HttpUrl] = Field(default=None)
+    bearer_token: Optional[SecretStr] = Field(default=None)
 
 
 class FileExporterSettings(BaseModel):
@@ -381,6 +385,11 @@ class AIMonitorSettings(BaseSettings):
         default=None,
         description="Prometheus URL to use",
         validation_alias=AliasChoices(*_PROMETHEUS_URL_ALIASES)
+    )
+    prometheus_bearer_token: Optional[SecretStr] = Field(
+        default=None,
+        description="Bearer token required to scrape the Prometheus metrics endpoint",
+        validation_alias=AliasChoices(*_PROMETHEUS_BEARER_TOKEN_ALIASES)
     )
     # Kafka flat fields are internal BaseSettings storage; use exporters.kafka publicly.
     kafka_enabled: bool = Field(
@@ -740,6 +749,9 @@ class AIMonitorSettings(BaseSettings):
                 prometheus_url = prometheus.get("url")
                 if prometheus_url is not None:
                     flattened_data["prometheus_url"] = prometheus_url
+                prometheus_bearer_token = prometheus.get("bearer_token")
+                if prometheus_bearer_token is not None:
+                    flattened_data["prometheus_bearer_token"] = prometheus_bearer_token
             else:
                 flattened_data["prometheus_enabled"] = False
 
@@ -969,6 +981,9 @@ class AIMonitorSettings(BaseSettings):
                 prometheus_url = prometheus.get("url")
                 if prometheus_url is not None:
                     flattened_data["prometheus_url"] = prometheus_url
+                prometheus_bearer_token = prometheus.get("bearer_token")
+                if prometheus_bearer_token is not None:
+                    flattened_data["prometheus_bearer_token"] = prometheus_bearer_token
             else:
                 flattened_data["prometheus_enabled"] = False
             # kafka
@@ -1167,7 +1182,11 @@ class AIMonitorSettings(BaseSettings):
             redis=RedisExporterSettings(enabled=self.redis_enabled, url=self.redis_url),
             mongodb=RedisExporterSettings(enabled=self.mongodb_enabled, url=self.mongodb_url),
             postgres=RedisExporterSettings(enabled=self.postgres_enabled, url=self.postgres_url),
-            prometheus=PrometheusExporterSettings(enabled=self.prometheus_enabled, url=self.prometheus_url),
+            prometheus=PrometheusExporterSettings(
+                enabled=self.prometheus_enabled,
+                url=self.prometheus_url,
+                bearer_token=self.prometheus_bearer_token,
+            ),
             kafka=KafkaExporterSettings(
                 enabled=self.kafka_enabled,
                 bootstrap_servers=self.kafka_bootstrap_servers,

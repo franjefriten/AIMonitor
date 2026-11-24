@@ -1,9 +1,11 @@
 import asyncio
 from collections.abc import Sequence
+import hmac
+from socketserver import ThreadingMixIn
 from threading import Thread
-from typing import Any, List, Optional
+from typing import Any
 from urllib.parse import urlparse
-from wsgiref.simple_server import WSGIServer
+from wsgiref.simple_server import WSGIServer, make_server
 
 import httpx
 
@@ -14,17 +16,30 @@ from aimonitor.utils.logger import logger
 from aimonitor.core.exceptions import OptionalDependencyMissingError
 
 try:
-    from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, start_http_server
+    from prometheus_client import (
+        CollectorRegistry,
+        Counter,
+        Gauge,
+        Histogram,
+        make_wsgi_app,
+        start_http_server,
+    )
 except ImportError as exc:  # pragma: no cover - import guard
     logger.warning("prometheus_client is not installed. PrometheusExporter will not work.")
     CollectorRegistry = None
     Counter = None
     Gauge = None
     Histogram = None
+    make_wsgi_app = None
     start_http_server = None
     _PROMETHEUS_IMPORT_ERROR = exc
 else:
     _PROMETHEUS_IMPORT_ERROR = None
+
+
+class _ThreadingWSGIServer(ThreadingMixIn, WSGIServer):
+    daemon_threads = True
+
 
 class PrometheusExporter(BaseExporter):
     """Expose MetricEvent signals as Prometheus metrics for Prometheus to scrape.
@@ -36,7 +51,11 @@ class PrometheusExporter(BaseExporter):
 
     SUPPORTED_SIGNALS = {SignalType.METRIC}
 
-    def __init__(self, address: str = "http://0.0.0.0:9000"): # type: ignore
+    def __init__(
+        self,
+        address: str = "http://0.0.0.0:9000",
+        bearer_token: str | None = None,
+    ):
         super().__init__()
         if (
             CollectorRegistry is None
@@ -50,7 +69,10 @@ class PrometheusExporter(BaseExporter):
                 "prometheus_client is required for PrometheusExporter. "
                 "Install it with pip install .[prometheus] or uv sync --extra prometheus"
             )
+        if bearer_token == "":
+            raise ValueError("bearer_token must not be empty")
         self.address = address
+        self._bearer_token = bearer_token
         self.registry = CollectorRegistry(auto_describe=True)
         self._server_started = False
         self._http_server: WSGIServer
@@ -72,11 +94,53 @@ class PrometheusExporter(BaseExporter):
                 "prometheus_client is required for PrometheusExporter. "
                 "Install it with pip install .[prometheus] or uv sync --extra prometheus"
             ) from _PROMETHEUS_IMPORT_ERROR
-        self._http_server, self._server_thread = start_server(
-            port=self.port,
-            addr=self.addr,
-            registry=self.registry,
-        )
+        if self._bearer_token is None:
+            self._http_server, self._server_thread = start_server(
+                port=self.port,
+                addr=self.addr,
+                registry=self.registry,
+            )
+        else:
+            if make_wsgi_app is None:
+                raise OptionalDependencyMissingError(
+                    "prometheus_client is required for PrometheusExporter. "
+                    "Install it with pip install .[prometheus] or uv sync --extra prometheus"
+                ) from _PROMETHEUS_IMPORT_ERROR
+            metrics_app = make_wsgi_app(self.registry)
+
+            def authenticated_metrics_app(environ, start_response):
+                authorization = environ.get("HTTP_AUTHORIZATION", "")
+                scheme, separator, supplied_token = authorization.partition(" ")
+                supplied_bytes = supplied_token.encode("utf-8")
+                expected_bytes = self._bearer_token.encode("utf-8")
+                if (
+                    scheme.lower() != "bearer"
+                    or not separator
+                    or not hmac.compare_digest(supplied_bytes, expected_bytes)
+                ):
+                    body = b"Unauthorized\n"
+                    start_response(
+                        "401 Unauthorized",
+                        [
+                            ("Content-Type", "text/plain; charset=utf-8"),
+                            ("Content-Length", str(len(body))),
+                            ("WWW-Authenticate", "Bearer"),
+                        ],
+                    )
+                    return [body]
+                return metrics_app(environ, start_response)
+
+            self._http_server = make_server(
+                self.addr,
+                self.port,
+                authenticated_metrics_app,
+                server_class=_ThreadingWSGIServer,
+            )
+            self._server_thread = Thread(
+                target=self._http_server.serve_forever,
+                daemon=True,
+            )
+            self._server_thread.start()
         self._server_started = True
 
     def _metrics_url(self) -> str:
@@ -174,7 +238,12 @@ class PrometheusExporter(BaseExporter):
         server_thread = self._server_thread
         try:
             async with httpx.AsyncClient(timeout=2.0) as client:
-                response = await client.get(self._metrics_url())
+                headers = (
+                    {"Authorization": f"Bearer {self._bearer_token}"}
+                    if self._bearer_token is not None
+                    else None
+                )
+                response = await client.get(self._metrics_url(), headers=headers)
         except httpx.HTTPError as exc:
             logger.error("Health check failed for PrometheusExporter: %s", exc)
             return False
@@ -188,7 +257,7 @@ class PrometheusExporter(BaseExporter):
         return {
             "status": "healthy" if server_is_healthy else "unhealthy",
             "message": "PrometheusExporter is operational." if server_is_healthy else "PrometheusExporter is not operational.",
-            "address": self.address,
+            "address": f"{self.addr}:{self.port}",
             "port": self.port,
             "registry": str(self.registry),
         }

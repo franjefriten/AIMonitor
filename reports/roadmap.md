@@ -68,6 +68,7 @@ Priorities are defined as follows:
   - Kafka integration tests with a real broker;
   - Prometheus integration tests with the supported signal types;
   - optional dependency import checks.
+- Add integration coverage for authentication on exporters that support it, including Prometheus scrape Bearer auth and Kafka SASL; cover Webhook and OTLP auth if/when those options are added.
 - Record supported Python versions and dependency versions in the project documentation.
 
 ### Exit criteria

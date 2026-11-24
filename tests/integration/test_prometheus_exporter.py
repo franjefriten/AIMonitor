@@ -330,6 +330,37 @@ async def test_prometheus_describe_reports_http_probe_failure(monkeypatch):
         await exporter.close()
 
 
+@pytest.mark.asyncio
+async def test_prometheus_exporter_requires_bearer_token_for_scrapes():
+    port = _get_free_port()
+    token = "prometheus-test-token"
+    exporter = PrometheusExporter(
+        address=f"http://127.0.0.1:{port}",
+        bearer_token=token,
+    )
+
+    try:
+        await exporter.connect()
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            unauthorized = await client.get(f"http://127.0.0.1:{port}/metrics")
+            invalid_token = await client.get(
+                f"http://127.0.0.1:{port}/metrics",
+                headers={"Authorization": "Bearer wrong-token"},
+            )
+            authorized = await client.get(
+                f"http://127.0.0.1:{port}/metrics",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+        assert unauthorized.status_code == 401
+        assert invalid_token.status_code == 401
+        assert authorized.status_code == 200
+        assert await exporter.healthcheck() is True
+        assert token not in repr(await exporter.describe())
+    finally:
+        await exporter.close()
+
+
 @pytest.mark.integration
 @pytest.mark.asyncio
 @pytest.mark.prometheus
