@@ -59,12 +59,14 @@ jobs:
               run: |
                 sh ./scripts/kafka/sh/run_kafka.sh
                 sh ./scripts/prometheus/sh/run_prometheus.sh
+                sh ./scripts/opentelemetry/sh/run_otel_collector.sh
 
             - name: Setup docker containers for integration tests on non-Linux
               if: runner.os != 'Linux'
               run: |
                 call ./scripts/kafka/bat/run_kafka.bat
                 call ./scripts/prometheus/bat/run_prometheus.bat
+                call ./scripts/opentelemetry/bat/run_otel_collector.bat
 
             - name: Wait for services to be ready
               run: |
@@ -75,6 +77,9 @@ jobs:
                 until nc -z localhost 9090; do sleep 1; done
                 until curl --fail --silent http://localhost:9090/-/healthy; do sleep 1; done
                 echo "Prometheus is ready."
+                echo "Waiting for OpenTelemetry Collector..."
+                until curl --fail --silent http://localhost:13133/; do sleep 1; done
+                echo "OpenTelemetry Collector is ready."
 
             - name: Run integration tests
               run: |
@@ -85,12 +90,14 @@ jobs:
               run: |
                 sh ./scripts/kafka/sh/stop_kafka.sh
                 sh ./scripts/prometheus/sh/stop_prometheus.sh
+                sh ./scripts/opentelemetry/sh/stop_otel_collector.sh
 
             - name: Tear down docker containers for integration tests on non-Linux
               if: ${{ always() && runner.os != 'Linux' }}
               run: |
                 call ./scripts/kafka/bat/stop_kafka.bat
                 call ./scripts/prometheus/bat/stop_prometheus.bat
+                call ./scripts/opentelemetry/bat/stop_otel_collector.bat
     testpypi_publish:
         name: Publish to TestPyPI
         runs-on: ubuntu-latest

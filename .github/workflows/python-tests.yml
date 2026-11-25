@@ -87,6 +87,7 @@ jobs:
         run: |
           sh ./scripts/kafka/sh/run_kafka.sh
           sh ./scripts/prometheus/sh/run_prometheus.sh
+          sh ./scripts/opentelemetry/sh/run_otel_collector.sh
 
       - name: Wait for integration services
         run: |
@@ -97,6 +98,9 @@ jobs:
           until nc -z localhost 9090; do sleep 1; done
           until curl -s http://localhost:9090; do sleep 1; done
           echo "Prometheus is ready."
+          echo "Waiting for OpenTelemetry Collector..."
+          until curl --fail --silent http://localhost:13133/; do sleep 1; done
+          echo "OpenTelemetry Collector is ready."
 
       - name: Run all unit and integration tests
         run: |
@@ -109,3 +113,7 @@ jobs:
       - name: Stop Prometheus
         if: always()
         run: sh ./scripts/prometheus/sh/stop_prometheus.sh
+
+      - name: Stop OpenTelemetry Collector
+        if: always()
+        run: sh ./scripts/opentelemetry/sh/stop_otel_collector.sh

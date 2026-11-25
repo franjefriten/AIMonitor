@@ -217,6 +217,8 @@ async def test_registry_with_multiple_exporters():
     pass
 ```
 
+The integration suite uses Docker-backed Kafka and Prometheus services. OpenTelemetry end-to-end tests also use the authenticated test Collector configured in `scripts/opentelemetry/otel-collector.yaml`. On Linux, start the services with the scripts under `scripts/*/sh/`; on Windows, use the matching scripts under `scripts/*/bat/`. CI starts and stops the required containers automatically.
+
 ### Coverage
 
 Aim for >80% test coverage on new code:

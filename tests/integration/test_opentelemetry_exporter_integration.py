@@ -1,8 +1,13 @@
+import os
+import socket
+import subprocess
+import time
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
 from uuid import uuid4
 
+import httpx
 import pytest
 
 from aimonitor.core.event import (
@@ -16,6 +21,111 @@ from aimonitor.core.event import (
 )
 from aimonitor.core.registry import registry
 from aimonitor.exporters.opentelemetry import OpenTelemetryExporter
+
+
+@pytest.mark.integration
+@pytest.mark.opentelemetry
+@pytest.mark.asyncio
+async def test_opentelemetry_exporter_sends_authenticated_signals_to_collector():
+    pytest.importorskip(
+        "opentelemetry.exporter.otlp.proto.http.trace_exporter",
+        reason="The opentelemetry extra is required for this integration test",
+    )
+    try:
+        with socket.create_connection(("127.0.0.1", 4318), timeout=1):
+            pass
+    except OSError:
+        pytest.skip("The OpenTelemetry Collector integration container is not running")
+
+    collector_name = os.getenv(
+        "OTEL_COLLECTOR_CONTAINER_NAME",
+        "otel-collector",
+    )
+    bearer_token = os.getenv(
+        "OTEL_COLLECTOR_BEARER_TOKEN",
+        "integration-test-token",
+    )
+    run_id = uuid4().hex
+    endpoint = "http://127.0.0.1:4318"
+
+    async with httpx.AsyncClient(timeout=5) as client:
+        unauthorized = await client.post(
+            f"{endpoint}/v1/traces",
+            content=b"",
+            headers={"Authorization": "Bearer invalid-token"},
+        )
+    assert unauthorized.status_code == 401
+
+    exporter = OpenTelemetryExporter(
+        enabled=True,
+        service_name="otel-collector-integration-test",
+        endpoint=endpoint,
+        headers={"Authorization": f"Bearer {bearer_token}"},
+        traces_enabled=True,
+        metrics_enabled=True,
+        logs_enabled=True,
+        metrics_export_interval_ms=500,
+    )
+    try:
+        await exporter.connect()
+        await exporter.export(
+            [
+                MCPEvent(
+                    tool_name=f"otel_collector_e2e_trace_{run_id}",
+                    args={},
+                    result={},
+                    timestamp=datetime.now(timezone.utc),
+                    delta=0.01,
+                    status=Status.SUCCESS,
+                ),
+                MetricEvent(
+                    name=f"otel_collector_e2e_metric_{run_id}",
+                    value=1,
+                    metric_type=MetricType.COUNTER,
+                    timestamp=datetime.now(timezone.utc),
+                ),
+                LogEvent(
+                    message=f"otel_collector_e2e_log_{run_id}",
+                    level=LogStatus.INFO,
+                    source="integration-test",
+                    timestamp=datetime.now(timezone.utc),
+                ),
+            ]
+        )
+    finally:
+        await exporter.close()
+
+    expected_collector_output = (
+        f"otel_collector_e2e_trace_{run_id}",
+        f"otel_collector_e2e_metric_{run_id}",
+        f"otel_collector_e2e_log_{run_id}",
+        "otel-collector-integration-test",
+    )
+    deadline = time.monotonic() + 15
+    collector_output = ""
+    while time.monotonic() < deadline:
+        result = subprocess.run(
+            ["docker", "logs", collector_name],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=5,
+        )
+        collector_output = f"{result.stdout}\n{result.stderr}"
+        if all(marker in collector_output for marker in expected_collector_output):
+            break
+        time.sleep(0.25)
+
+    missing_markers = [
+        marker
+        for marker in expected_collector_output
+        if marker not in collector_output
+    ]
+    assert not missing_markers, (
+        "OpenTelemetry Collector did not report all exported signals. "
+        f"Missing output markers: {missing_markers}"
+    )
+
 
 @pytest.mark.integration
 @pytest.mark.opentelemetry
