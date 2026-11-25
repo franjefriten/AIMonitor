@@ -41,7 +41,36 @@ AIMONITOR_RETRIES_POLICY=3
 AIMONITOR_OTEL_MCP_EXPORTER_ENABLED=true
 AIMONITOR_OTEL_MCP_SERVICE_NAME=my-service
 AIMONITOR_OTEL_MCP_SPAN_PREFIX=mcp.tool
+AIMONITOR_OTEL_ENDPOINT=http://localhost:4318
+AIMONITOR_OTEL_TRACES_ENABLED=true
+AIMONITOR_OTEL_METRICS_ENABLED=false
+AIMONITOR_OTEL_LOGS_ENABLED=false
+AIMONITOR_OTEL_METRICS_EXPORT_INTERVAL_MS=60000
 ```
+
+### Secret references in YAML
+
+Do not store credentials in the configuration file. In YAML, reference an environment variable with `$secrets.VARIABLE_NAME`; AIMonitor substitutes the reference when loading the file. References are also supported inside a string, such as `Bearer $secrets.OTEL_TOKEN`.
+
+```yaml
+exporters:
+  kafka:
+    enabled: true
+    sasl:
+      mechanism: "PLAIN"
+      username: "$secrets.KAFKA_USERNAME"
+      password: "$secrets.KAFKA_PASSWORD"
+```
+
+Define the variables in the process environment before starting the application:
+
+```bash
+export KAFKA_USERNAME="aimonitor-user"
+export KAFKA_PASSWORD="..."
+```
+
+The name after `$secrets.` is looked up exactly as written; it does not use the `AIMONITOR_` prefix. YAML loading fails explicitly if the variable is missing or empty. This syntax is supported when loading YAML; JSON loading does not resolve it.
+Prometheus exporter settings can also be supplied directly through `AIMONITOR_PROMETHEUS_BEARER_TOKEN`.
 
 ## YAML configuration
 
@@ -49,7 +78,7 @@ AIMonitor accepts a nested exporter layout, including Kafka producer settings an
 
 ```yaml
 app:
-  env: ENV
+  env: DEV
 
 tracking:
   enabled: true
@@ -68,6 +97,7 @@ exporters:
   prometheus:
     enabled: true
     url: "http://localhost:9000"
+    bearer_token: "$secrets.PROMETHEUS_SCRAPE_TOKEN"
 
   file:
     enabled: true
@@ -77,6 +107,14 @@ exporters:
     enabled: true
     service_name: "aimonitor-test"
     span_prefix: "mcp.test"
+    endpoint: "http://localhost:4318"
+    headers:
+      Authorization: "Bearer $secrets.OTEL_EXPORTER_TOKEN"
+    signals:
+      traces: true
+      metrics: false
+      logs: false
+    metrics_export_interval_ms: 60000
 
   kafka:
     enabled: true
@@ -89,6 +127,11 @@ exporters:
       compression: "none"
       batch_size: 2048
       max_workers: 12
+    topics:
+      event: "my-app-events"
+      metric: "my-app-metrics"
+      span: "my-app-span"
+      log: "my-app-log"
 ```
 
 Then load it with:
@@ -190,6 +233,12 @@ The most relevant defaults are:
 | `exporters.otel`           | `enabled`              | `false`                                                    |
 | `exporters.otel`           | `service_name`         | `aimonitor-mcp`                                            |
 | `exporters.otel`           | `span_prefix`          | `mcp.tool`                                                 |
+| `exporters.otel`           | `endpoint`              | `http://localhost:4318`                                    |
+| `exporters.otel`           | `headers`               | Empty mapping; values are masked `SecretStr` values        |
+| `exporters.otel.signals`   | `traces`                | `false`                                                    |
+| `exporters.otel.signals`   | `metrics`               | `false`                                                    |
+| `exporters.otel.signals`   | `logs`                  | `false`                                                    |
+| `exporters.otel`           | `metrics_export_interval_ms` | `60000`                                               |
 
 The exporter constructors also have explicit standalone defaults. Bootstrap passes the configured values when an exporter is initialized.
 

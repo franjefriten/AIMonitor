@@ -41,10 +41,7 @@ async def test_health_check_event_emission():
     captured = []
 
     class SpyExporter(BaseExporter):
-        async def export(self, event):
-            captured.append(event)
-
-        async def export_batch(self, event_batch):
+        async def export(self, event_batch):
             captured.extend(event_batch)
         
         async def healthcheck(self):
@@ -83,7 +80,7 @@ async def test_base_healthcheck_wraps_custom_healthcheck_and_emits_telemetry(mon
     captured = []
 
     class CustomExporter(BaseExporter):
-        async def export_batch(self, event_batch):
+        async def export(self, event_batch):
             pass
 
         async def healthcheck(self):
@@ -109,12 +106,14 @@ async def test_base_healthcheck_wraps_custom_healthcheck_and_emits_telemetry(mon
 
     assert healthy == True
     summary_snapshot = registry._health.model_dump().get("summary")
+    assert summary_snapshot is not None
     assert summary_snapshot["total_exporters"] == 1
     assert summary_snapshot["healthy_count"] == 1
     assert summary_snapshot["down_count"] == 0
 
     key = registry._snapshot_key(exporter)
     snapshot = registry._health.model_dump().get("exporters")
+    assert snapshot is not None
     assert snapshot[key].get("status") == HealthStatus.HEALTHY
     assert snapshot[key].get("last_success_at") is not None
     assert snapshot[key].get("last_failure_at") is None
@@ -126,7 +125,7 @@ async def test_healthcheck_false_populates_snapshot(monkeypatch):
     captured = []
 
     class CustomExporter(BaseExporter):
-        async def export_batch(self, event_batch):
+        async def export(self, event_batch):
             pass
 
         async def healthcheck(self):
@@ -153,12 +152,14 @@ async def test_healthcheck_false_populates_snapshot(monkeypatch):
     assert isinstance(healthy, bool)
     assert healthy == False
     summary_snapshot = registry._health.model_dump().get("summary")
+    assert summary_snapshot is not None
     assert summary_snapshot["total_exporters"] == 1
     assert summary_snapshot["healthy_count"] == 0
     assert summary_snapshot["down_count"] == 1
 
     key = registry._snapshot_key(exporter)
     snapshot = registry._health.model_dump().get("exporters")
+    assert snapshot is not None
     assert snapshot[key].get("status") == HealthStatus.DOWN
     assert snapshot[key].get("last_success_at") is None
     assert snapshot[key].get("last_failure_at") is not None
@@ -170,7 +171,7 @@ async def test_healthcheck_failure_populates_snapshot(monkeypatch):
     captured = []
 
     class CustomExporter(BaseExporter):
-        async def export_batch(self, event_batch):
+        async def export(self, event_batch):
             pass
 
         async def healthcheck(self):
@@ -200,12 +201,14 @@ async def test_healthcheck_failure_populates_snapshot(monkeypatch):
     assert isinstance(healthy, bool)
     assert healthy == False
     summary_snapshot = registry._health.model_dump().get("summary")
+    assert summary_snapshot is not None
     assert summary_snapshot["total_exporters"] == 1
     assert summary_snapshot["healthy_count"] == 0
     assert summary_snapshot["down_count"] == 1
 
     key = registry._snapshot_key(exporter)
     snapshot = registry._health.model_dump().get("exporters")
+    assert snapshot is not None
     assert snapshot[key].get("status") == HealthStatus.FAILURE
     assert snapshot[key].get("last_success_at") is None
     assert snapshot[key].get("last_failure_at") is not None
@@ -218,7 +221,7 @@ async def test_inner_telemetry_disabled_keeps_health_snapshot_without_sending_to
     captured = []
 
     class CustomExporter(BaseExporter):
-        async def export_batch(self, event_batch):
+        async def export(self, event_batch):
             pass
 
         async def healthcheck(self):
@@ -238,6 +241,7 @@ async def test_inner_telemetry_disabled_keeps_health_snapshot_without_sending_to
     )
 
     exporter_registry = ExporterRegistry()
+    monkeypatch.setattr(exporter_registry, "_start_healthcheck_worker", lambda: None)
     exporter = CustomExporter()
     exporter_registry.register(exporter)
     snapshot = await exporter_registry._run_healthcheck(exporter)
@@ -254,7 +258,7 @@ async def test_consecutive_success_and_fail_healthchecks(monkeypatch):
     captured = []
 
     class CustomExporter(BaseExporter):
-        async def export_batch(self, event_batch):
+        async def export(self, event_batch):
             pass
 
         async def healthcheck(self, check: bool):
@@ -286,6 +290,7 @@ async def test_consecutive_success_and_fail_healthchecks(monkeypatch):
 
     key = registry._snapshot_key(exporter)
     snapshot = registry._health.model_dump().get("exporters")
+    assert snapshot is not None
     assert snapshot[key].get("consecutive_successes") == 0  # After a failed healthcheck, consecutive successes should reset to 0
     assert snapshot[key].get("consecutive_failures") == 1
 
@@ -300,7 +305,7 @@ async def test_health_status_transition(monkeypatch):
         def __init__(self):
             self.healthy = True
 
-        async def export_batch(self, event_batch):
+        async def export(self, event_batch):
             pass
 
         async def healthcheck(self):
@@ -315,6 +320,7 @@ async def test_health_status_transition(monkeypatch):
     async def capture_healthcheck(snapshot):
         captured.append(snapshot.model_dump())
 
+    monkeypatch.setattr(telemetry_producer, "enabled", True)
     monkeypatch.setattr(telemetry_producer, "record_exporter_healthcheck", capture_healthcheck)
 
     registry = ExporterRegistry()
@@ -395,7 +401,7 @@ async def test_health_recovery(monkeypatch):
         def __init__(self):
             self.healthy = False
 
-        async def export_batch(self, event_batch):
+        async def export(self, event_batch):
             pass
 
         async def healthcheck(self):
@@ -411,6 +417,7 @@ async def test_health_recovery(monkeypatch):
     async def capture_healthcheck(snapshot):
         captured.append(snapshot.model_dump())
 
+    monkeypatch.setattr(telemetry_producer, "enabled", True)
     monkeypatch.setattr(telemetry_producer, "record_exporter_healthcheck", capture_healthcheck)
 
     registry = ExporterRegistry()
@@ -449,7 +456,7 @@ async def test_health_recovery_failed(monkeypatch):
         def __init__(self):
             self.healthy = False
 
-        async def export_batch(self, event_batch):
+        async def export(self, event_batch):
             pass
 
         async def healthcheck(self):
@@ -465,6 +472,7 @@ async def test_health_recovery_failed(monkeypatch):
     async def capture_healthcheck(snapshot):
         captured.append(snapshot.model_dump())
 
+    monkeypatch.setattr(telemetry_producer, "enabled", True)
     monkeypatch.setattr(telemetry_producer, "record_exporter_healthcheck", capture_healthcheck)
 
     registry = ExporterRegistry()
@@ -499,7 +507,7 @@ async def test_health_recovery_retries_until_success(monkeypatch):
             self.recover_calls = 0
             self.healthy = False
 
-        async def export_batch(self, event_batch):
+        async def export(self, event_batch):
             pass
 
         async def healthcheck(self):
@@ -546,7 +554,7 @@ async def test_health_recovery_timeout_marks_exporter_as_failure():
         def __init__(self):
             self.recover_calls = 0
 
-        async def export_batch(self, event_batch):
+        async def export(self, event_batch):
             pass
 
         async def healthcheck(self):
@@ -583,7 +591,7 @@ async def test_health_recovery_timeout_marks_exporter_as_failure():
 @pytest.mark.asyncio
 async def test_readiness_uses_cached_lifecycle_snapshot_without_describe(monkeypatch):
     class LifecycleExporter(BaseExporter):
-        async def export_batch(self, event_batch):
+        async def export(self, event_batch):
             pass
 
         async def healthcheck(self):
@@ -617,7 +625,7 @@ async def test_exporter_lifecycle_register_healthcheck_and_shutdown(monkeypatch)
         def __init__(self):
             self.closed = False
 
-        async def export_batch(self, event_batch):
+        async def export(self, event_batch):
             pass
 
         async def healthcheck(self):
@@ -652,7 +660,7 @@ async def test_exporter_lifecycle_register_healthcheck_and_shutdown(monkeypatch)
 @pytest.mark.asyncio
 async def test_registry_reset_discards_lifecycle_snapshot(monkeypatch):
     class ResettableExporter(BaseExporter):
-        async def export_batch(self, event_batch):
+        async def export(self, event_batch):
             pass
 
         async def healthcheck(self):
@@ -676,3 +684,141 @@ async def test_registry_reset_discards_lifecycle_snapshot(monkeypatch):
     assert snapshot.status == SDKHealthStatus.EMPTY
     assert snapshot.exporters == {}
     assert snapshot.summary["total_exporters"] == 0
+
+
+@pytest.mark.asyncio
+async def test_shutdown_cancels_in_progress_healthcheck():
+    healthcheck_started = asyncio.Event()
+    healthcheck_cancelled = asyncio.Event()
+    release_healthcheck = asyncio.Event()
+
+    class BlockingHealthcheckExporter(BaseExporter):
+        def __init__(self):
+            self.closed = False
+
+        async def export(self, event_batch):
+            pass
+
+        async def healthcheck(self):
+            healthcheck_started.set()
+            try:
+                await release_healthcheck.wait()
+            except asyncio.CancelledError:
+                healthcheck_cancelled.set()
+                raise
+            return True
+
+        async def describe(self):
+            return {"destination": "test"}
+
+        async def recover(self):
+            return True
+
+        async def close(self):
+            self.closed = True
+
+    registry = ExporterRegistry()
+    registry._healthcheck_timeout = 60
+    exporter = BlockingHealthcheckExporter()
+    registry.register(exporter)
+    worker = registry._healthcheck_worker
+    assert worker is not None
+
+    try:
+        await asyncio.wait_for(healthcheck_started.wait(), timeout=2)
+        shutdown_task = asyncio.create_task(registry.shutdown())
+        done, _ = await asyncio.wait({shutdown_task}, timeout=2)
+        if not done:
+            release_healthcheck.set()
+            await asyncio.wait_for(shutdown_task, timeout=2)
+            pytest.fail("Shutdown did not cancel the active healthcheck worker.")
+
+        await shutdown_task
+
+        assert healthcheck_cancelled.is_set()
+        assert worker.cancelled()
+        assert exporter.closed
+    finally:
+        release_healthcheck.set()
+
+
+@pytest.mark.asyncio
+async def test_recovery_lock_blocks_only_exports_to_the_recovering_exporter(monkeypatch):
+    recovery_started = asyncio.Event()
+    release_recovery = asyncio.Event()
+    unrelated_export_started = asyncio.Event()
+    recovering_export_started = asyncio.Event()
+
+    class LockingExporter(BaseExporter):
+        def __init__(self, *, blocks_recovery=False):
+            self.blocks_recovery = blocks_recovery
+
+        async def export(self, event_batch):
+            if self.blocks_recovery:
+                recovering_export_started.set()
+            else:
+                unrelated_export_started.set()
+
+        async def healthcheck(self):
+            return True
+
+        async def describe(self):
+            return {"destination": "test"}
+
+        async def recover(self):
+            if self.blocks_recovery:
+                recovery_started.set()
+                await release_recovery.wait()
+            return True
+
+    registry = ExporterRegistry()
+    monkeypatch.setattr(registry, "_start_healthcheck_worker", lambda: None)
+    unrelated_exporter = LockingExporter()
+    recovering_exporter = LockingExporter(blocks_recovery=True)
+    registry.register(unrelated_exporter)
+    registry.register(recovering_exporter)
+
+    recovery_task = asyncio.create_task(
+        registry._attempt_exporter_recovery(recovering_exporter)
+    )
+    await asyncio.wait_for(recovery_started.wait(), timeout=1)
+    send_task = asyncio.create_task(registry._send_batch([]))
+
+    try:
+        await asyncio.wait_for(unrelated_export_started.wait(), timeout=1)
+        await asyncio.sleep(0)
+        assert not recovering_export_started.is_set()
+    finally:
+        release_recovery.set()
+        await asyncio.wait_for(
+            asyncio.gather(recovery_task, send_task),
+            timeout=1,
+        )
+
+    assert recovering_export_started.is_set()
+
+
+@pytest.mark.asyncio
+async def test_loop_change_discards_health_worker_from_closed_loop():
+    registry = ExporterRegistry()
+    old_loop = asyncio.new_event_loop()
+    stale_worker = old_loop.create_future()
+    registry._loop = old_loop
+    registry._queue = asyncio.Queue()
+    registry._healthcheck_worker = stale_worker
+    registry._exporter_locks = {1: asyncio.Lock()}
+
+    try:
+        current_loop = asyncio.get_running_loop()
+        assert not registry._ensure_runtime_loop(current_loop)
+        assert registry._healthcheck_worker is stale_worker
+
+        old_loop.close()
+
+        assert registry._ensure_runtime_loop(current_loop)
+        assert registry._healthcheck_worker is None
+        assert registry._queue is None
+        assert registry._exporter_locks == {}
+    finally:
+        if not old_loop.is_closed():
+            old_loop.close()

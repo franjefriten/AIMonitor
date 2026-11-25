@@ -1,6 +1,8 @@
 from enum import Enum
 from functools import lru_cache
+import os
 from pathlib import Path
+import re
 from typing import Any, Literal, Optional
 from urllib import parse
 import socket
@@ -8,11 +10,14 @@ import socket
 import aiofiles
 import json
 import yaml
-from pydantic import AnyUrl, BaseModel, Field, FilePath, HttpUrl, field_validator, AliasChoices, SecretStr, model_validator
+from pydantic import AnyUrl, BaseModel, Field, FilePath, HttpUrl, PrivateAttr, field_validator, AliasChoices, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing_extensions import Self
 
 import logging
 from logging import getLogger, config
+
+from aimonitor.core.exceptions import EnvSecretNotFoundError
 
 _VALID_URLS = ["mongodb://", "redis://", "postgres://", "postgresql://", "http://", "https://"]
 
@@ -20,6 +25,7 @@ _REDIS_URL_ALIASES = frozenset({"redis_url", "redis-url", "redisUrl"})
 _MONGODB_URL_ALIASES = frozenset({"mongodb_url", "mongodb-url", "mongodbUrl"})
 _POSTGRES_URL_ALIASES = frozenset({"postgres_url", "postgres-url", "postgresUrl"})
 _PROMETHEUS_URL_ALIASES = frozenset({"prometheus_url", "prometheus-url", "prometheusUrl"})
+_PROMETHEUS_BEARER_TOKEN_ALIASES = frozenset({"prometheus_bearer_token", "prometheus-bearer-token", "prometheusBearerToken"})
 _SQLITE_URI_ALIASES = frozenset({"sqlite_uri", "sqlite-uri", "sqliteUri"})
 _MAX_MB_PER_FILE_ALIASES = frozenset({"max_mb_per_file", "max-mb-per-file", "maxMbPerFile", "max_mb", "max-mb", "maxMb"})
 _ENV_CODE_ALIASES = frozenset({"env", "envCode", "env-code", "env_code", "environment"})
@@ -128,6 +134,54 @@ _KAFKA_AUTO_OFFSET_RESET_ALIASES = frozenset({"auto_offset_reset", "auto.offset.
 _KAFKA_REQUEST_TIMEOUT_MS_ALIASES = frozenset({"request_timeout_ms", "request.timeout.ms", "requestTimeoutMs", "kafka_request_timeout_ms"})
 _KAFKA_DELIVERY_TIMEOUT_MS_ALIASES = frozenset({"delivery_timeout_ms", "delivery.timeout.ms", "deliveryTimeoutMs", "kafka_delivery_timeout_ms"})
 
+_SECRET_REFERENCE_PREFIX = "$secrets."
+_SECRET_REFERENCE_PATTERN = re.compile(r"\$secrets\.([A-Za-z_][A-Za-z0-9_]*)")
+
+
+def _resolve_secret_references(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _resolve_secret_references(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_resolve_secret_references(item) for item in value]
+    if not isinstance(value, str) or _SECRET_REFERENCE_PREFIX not in value:
+        return value
+
+    references = list(_SECRET_REFERENCE_PATTERN.finditer(value))
+    if value.count(_SECRET_REFERENCE_PREFIX) != len(references):
+        raise EnvSecretNotFoundError(
+            "Invalid secret reference; expected '$secrets.ENV_VAR_NAME'."
+        ) 
+
+    def replace_reference(match: re.Match[str]) -> str:
+        env_name = match.group(1)
+        secret = os.environ.get(env_name)
+        if not secret:
+            raise ValueError(
+                f"Required secret environment variable '{env_name}' is not set."
+            )
+        return secret
+
+    return _SECRET_REFERENCE_PATTERN.sub(replace_reference, value)
+
+
+def _wrap_secret_headers(value: Any) -> dict[str, SecretStr]:
+    if not isinstance(value, dict):
+        raise ValueError("OTLP headers must be a mapping of names to string values.")
+    if any(
+        not isinstance(name, str)
+        or not name
+        or not isinstance(header_value, str)
+        for name, header_value in value.items()
+    ):
+        raise ValueError("OTLP header names must be non-empty and values must be strings.")
+    return {
+        name: SecretStr(header_value)
+        for name, header_value in value.items()
+    }
+
 
 LOGGING_CONFIG = {
     "version": 1,
@@ -161,18 +215,18 @@ config.dictConfig(config=LOGGING_CONFIG)
 config_logger = getLogger("AIMonitor.Config") # avoid circular import
 
 class _VALID_ENV_CODE(str, Enum):
-    ENV = "ENV"
+    DEV = "DEV"
     STG = "STG"
     PRO = "PRO"
 
 
 class AppSettings(BaseModel):
-    env_code: _VALID_ENV_CODE = Field(default=_VALID_ENV_CODE.ENV, description="Environment code used for configs such as logs")
+    env_code: _VALID_ENV_CODE | None = Field(default=_VALID_ENV_CODE.DEV, description="Environment code used for configs such as logs")
     logger_level: str = Field(default="INFO", description="Logger level used for the module inner console logs")
 
     @property
-    def env(self) -> str:
-        return self.env_code.value
+    def env(self) -> str | None:
+        return self.env_code.value if self.env_code is not None else None
 
 
 class TrackingSettings(BaseModel):
@@ -199,14 +253,19 @@ class KafkaProducerSettings(BaseModel):
     batch_size: Optional[int] = Field(default=None)
     retries: Optional[int] = Field(default=None)
 
+class KafkaTopicsSettings(BaseModel):
+    event: Optional[str] = Field(default=None)
+    metric: Optional[str] = Field(default=None)
+    log: Optional[str] = Field(default=None)
+    span: Optional[str] = Field(default=None)
 
 class KafkaExporterSettings(BaseModel):
     enabled: bool = Field(default=False)
     bootstrap_servers: Optional[str] = Field(default=None)
     security_protocol: Optional[str] = Field(default=None)
     sasl_mechanism: Optional[str] = Field(default=None)
-    sasl_username: Optional[str] = Field(default=None)
-    sasl_password: Optional[str] = Field(default=None)
+    sasl_username: Optional[SecretStr] = Field(default=None)
+    sasl_password: Optional[SecretStr] = Field(default=None)
     group_id: str = Field(default="aimonitor-group")
     auto_offset_reset: Optional[str] = Field(default=None)
     retry_policy: Optional[int] = Field(default=None)
@@ -217,6 +276,7 @@ class KafkaExporterSettings(BaseModel):
     reconnect_backoff_max_ms: Optional[int] = Field(default=None)
     max_in_flight_requests_per_connection: Optional[int] = Field(default=None)
     buffer_timeout: Optional[float] = Field(default=None)
+    topics: KafkaTopicsSettings = Field(default_factory=KafkaTopicsSettings)
     producer: KafkaProducerSettings = Field(default_factory=KafkaProducerSettings)
 
 
@@ -228,6 +288,7 @@ class RedisExporterSettings(BaseModel):
 class PrometheusExporterSettings(BaseModel):
     enabled: bool = Field(default=False)
     url: Optional[HttpUrl] = Field(default=None)
+    bearer_token: Optional[SecretStr] = Field(default=None)
 
 
 class FileExporterSettings(BaseModel):
@@ -241,10 +302,20 @@ class SQLiteExporterSettings(BaseModel):
     uri: Optional[Path] = Field(default=None)
 
 
+class OpenTelemetrySignalsSettings(BaseModel):
+    traces: bool = Field(default=False)
+    metrics: bool = Field(default=False)
+    logs: bool = Field(default=False)
+
+
 class OpenTelemetryExporterSettings(BaseModel):
     enabled: bool = Field(default=False)
     service_name: str = Field(default="aimonitor-mcp")
     span_prefix: str = Field(default="mcp.tool")
+    endpoint: str = Field(default="http://localhost:4318")
+    headers: dict[str, SecretStr] = Field(default_factory=dict)
+    signals: OpenTelemetrySignalsSettings = Field(default_factory=OpenTelemetrySignalsSettings)
+    metrics_export_interval_ms: int = Field(default=60_000, ge=1)
 
 
 class ExporterSettings(BaseModel):
@@ -270,6 +341,7 @@ class AIMonitorSettings(BaseSettings):
         populate_by_name=True,
         extra="ignore",
     )
+    _file_loaded_fields: set[str] = PrivateAttr(default_factory=set)
 
     app: AppSettings = Field(default_factory=AppSettings)
     tracking: TrackingSettings = Field(default_factory=TrackingSettings)
@@ -330,6 +402,11 @@ class AIMonitorSettings(BaseSettings):
         default=None,
         description="Prometheus URL to use",
         validation_alias=AliasChoices(*_PROMETHEUS_URL_ALIASES)
+    )
+    prometheus_bearer_token: Optional[SecretStr] = Field(
+        default=None,
+        description="Bearer token required to scrape the Prometheus metrics endpoint",
+        validation_alias=AliasChoices(*_PROMETHEUS_BEARER_TOKEN_ALIASES)
     )
     # Kafka flat fields are internal BaseSettings storage; use exporters.kafka publicly.
     kafka_enabled: bool = Field(
@@ -441,6 +518,26 @@ class AIMonitorSettings(BaseSettings):
         ge=1,
         validation_alias=AliasChoices(*_KAFKA_BATCH_SIZE_ALIASES),
     )
+    kafka_topic_event: Optional[str] = Field(
+        default=None,
+        description="Kafka topic to which events will be published",
+        validation_alias="event"
+    )
+    kafka_topic_log: Optional[str] = Field(
+        default=None,
+        description="Kafka topic to which logs will be published",
+        validation_alias="log",
+    )
+    kafka_topic_metric: Optional[str] = Field(
+        default=None,
+        description="Kafka topic to which metrics will be published",
+        validation_alias="metric",
+    )
+    kafka_topic_span: Optional[str] = Field(
+        default=None,
+        description="Kafka topic to which spans will be published",
+        validation_alias="span",
+    )
     # sqlite
     sqlite_enabled: bool = Field(
         default=False,
@@ -465,7 +562,7 @@ class AIMonitorSettings(BaseSettings):
         validation_alias=AliasChoices(*_RETRIES_POLICY_ALIASES)
     )
     env_code: Optional[_VALID_ENV_CODE] = Field(
-        default=_VALID_ENV_CODE.ENV, 
+        default=_VALID_ENV_CODE.DEV, 
         description="Environment code used for configs such as logs",
         validation_alias=AliasChoices(*_ENV_CODE_ALIASES)    
     )
@@ -517,13 +614,13 @@ class AIMonitorSettings(BaseSettings):
         description="Whether the registry background exporter healthcheck loop is enabled",
         validation_alias=AliasChoices(*_HEALTHCHECK_ENABLED_ALIASES),
     )
-    healthcheck_interval: int = Field(
+    healthcheck_interval: float = Field(
         default=60,
         description="Seconds between exporter health checks when the registry background loop is enabled",
         ge=1,
         validation_alias=AliasChoices(*_HEALTHCHECK_INTERVAL_ALIASES),
     )
-    healthcheck_timeout: int = Field(
+    healthcheck_timeout: float = Field(
         default=10,
         description="Timeout in seconds for each exporter health check when the registry background loop is enabled",
         ge=1,
@@ -534,7 +631,7 @@ class AIMonitorSettings(BaseSettings):
         description="Retry policy for exporter health checks when the registry background loop is enabled",
         validation_alias=AliasChoices(*_HEALTHCHECK_RETRY_POLICY_ALIASES),
     )
-    healthcheck_recovery_timeout: int = Field(
+    healthcheck_recovery_timeout: float = Field(
         default=10,
         description="Timeout in seconds for recovery attempts of each exporter when the registry background loop is enabled",
         ge=1,
@@ -548,8 +645,12 @@ class AIMonitorSettings(BaseSettings):
         modules keep a reference to the settings singleton.
         """
         fresh_settings = type(self)()
+        fresh_fields_set = fresh_settings.model_fields_set.copy()
         self.__dict__.clear()
         self.__dict__.update(fresh_settings.__dict__)
+        self.model_fields_set.clear()
+        self.model_fields_set.update(fresh_fields_set)
+        self._file_loaded_fields.clear()
 
     # OpenTelemetry exporter for monitored MCP events (separate from SDK internal telemetry)
     otel_enabled: bool = Field(
@@ -571,6 +672,12 @@ class AIMonitorSettings(BaseSettings):
         description="Span name prefix for monitored MCP tool events",
         validation_alias=AliasChoices(*_OTEL_MCP_SPAN_PREFIX_ALIASES),
     )
+    otel_endpoint: str = Field(default="http://localhost:4318")
+    otel_headers: dict[str, SecretStr] = Field(default_factory=dict)
+    otel_traces_enabled: bool = Field(default=False)
+    otel_metrics_enabled: bool = Field(default=False)
+    otel_logs_enabled: bool = Field(default=False)
+    otel_metrics_export_interval_ms: int = Field(default=60_000, ge=1)
 
 
     async def load_from_yaml(self, yaml_file_path: str | Path) -> None:
@@ -579,8 +686,11 @@ class AIMonitorSettings(BaseSettings):
             config_logger.error("YAML config file was not found")
             raise FileNotFoundError("YAML config file was not found")
 
-        async with aiofiles.open(yaml_file_path, mode="r", encoding="utf-8") as file:
-            data = yaml.safe_load(await file.read()) or {}
+        self._prepare_for_file_load()
+        async with aiofiles.open(yaml_file_path, mode="r", encoding="utf-8") as config_file:
+            data = _resolve_secret_references(
+                yaml.safe_load(await config_file.read()) or {}
+            )
 
         if data:
             # app
@@ -628,16 +738,7 @@ class AIMonitorSettings(BaseSettings):
 
             # exporters
             exporters_data: dict = data.get("exporters", {})
-            # redis
-            redis: dict = exporters_data.get("redis", {})
-            redis_enabled = redis.get("enabled", False)
-            if redis_enabled:
-                flattened_data["redis_enabled"] = redis_enabled
-                redis_url = redis.get("url")
-                if redis_url is not None:
-                    flattened_data["redis_url"] = redis_url
-            else:
-                flattened_data["redis_enabled"] = False
+
             # mongodb
             mongodb: dict = exporters_data.get("mongodb", {})
             mongodb_enabled: bool = mongodb.get("enabled", False)
@@ -666,8 +767,12 @@ class AIMonitorSettings(BaseSettings):
                 prometheus_url = prometheus.get("url")
                 if prometheus_url is not None:
                     flattened_data["prometheus_url"] = prometheus_url
+                prometheus_bearer_token = prometheus.get("bearer_token")
+                if prometheus_bearer_token is not None:
+                    flattened_data["prometheus_bearer_token"] = prometheus_bearer_token
             else:
                 flattened_data["prometheus_enabled"] = False
+
             # kafka
             kafka: dict = exporters_data.get("kafka", {})
             if kafka.get("enabled"):
@@ -745,8 +850,24 @@ class AIMonitorSettings(BaseSettings):
                 kafka_buffer_timeout = kafka.get("buffer_timeout")
                 if kafka_buffer_timeout is not None and isinstance(kafka_buffer_timeout, (int, float)):
                     flattened_data["kafka_buffer_timeout"] = kafka_buffer_timeout
+
+                kafka_topics = kafka.get("topics", {})
+                if isinstance(kafka_topics, dict):
+                    kafka_topic_event = kafka_topics.get("event")
+                    kafka_topic_log = kafka_topics.get("log")
+                    kafka_topic_metric = kafka_topics.get("metric")
+                    kafka_topic_span = kafka_topics.get("span")
+                    if kafka_topic_event is not None:
+                        flattened_data["kafka_topic_event"] = kafka_topic_event
+                    if kafka_topic_log is not None:
+                        flattened_data["kafka_topic_log"] = kafka_topic_log
+                    if kafka_topic_metric is not None:
+                        flattened_data["kafka_topic_metric"] = kafka_topic_metric
+                    if kafka_topic_span is not None:
+                        flattened_data["kafka_topic_span"] = kafka_topic_span
             else:
                 flattened_data["kafka_enabled"] = False
+
             # open telemetry
             otel: dict = exporters_data.get("otel", {})
             otel_enabled: bool = otel.get("enabled", False)
@@ -758,15 +879,28 @@ class AIMonitorSettings(BaseSettings):
                 otel_span_prefix = otel.get("span_prefix")
                 if otel_span_prefix is not None:
                     flattened_data["otel_mcp_span_prefix"] = otel_span_prefix
+                otel_endpoint = otel.get("endpoint")
+                if otel_endpoint is not None:
+                    flattened_data["otel_endpoint"] = otel_endpoint
+                otel_headers = otel.get("headers")
+                if otel_headers is not None:
+                    flattened_data["otel_headers"] = _wrap_secret_headers(otel_headers)
+                otel_signals = otel.get("signals", {})
+                for signal_name in ("traces", "metrics", "logs"):
+                    if signal_name in otel_signals:
+                        flattened_data[f"otel_{signal_name}_enabled"] = otel_signals[signal_name]
+                otel_metrics_export_interval_ms = otel.get("metrics_export_interval_ms")
+                if otel_metrics_export_interval_ms is not None:
+                    flattened_data["otel_metrics_export_interval_ms"] = otel_metrics_export_interval_ms
             # file
-            file: dict = exporters_data.get("file", {})
-            file_enabled: bool = file.get("enabled", False)
+            file_cfg: dict = exporters_data.get("file", {})
+            file_enabled: bool = file_cfg.get("enabled", False)
             if file_enabled:
                 flattened_data["file_enabled"] = True
-                file_path = next(iter(file.get(label) for label in _FILE_EXPORTER_LOGS_ALIASES if label in file), None)
+                file_path = next(iter(file_cfg.get(label) for label in _FILE_EXPORTER_LOGS_ALIASES if label in file_cfg), None)
                 if file_path is not None:
                     flattened_data["file_exporter_logs"] = Path(file_path)
-                max_mb_per_file = next(iter(file.get(label) for label in _MAX_MB_PER_FILE_ALIASES if label in file), None)
+                max_mb_per_file = next(iter(file_cfg.get(label) for label in _MAX_MB_PER_FILE_ALIASES if label in file_cfg), None)
                 if max_mb_per_file is not None:
                     flattened_data["max_mb_per_file"] = max_mb_per_file
             # sqlite
@@ -789,8 +923,9 @@ class AIMonitorSettings(BaseSettings):
             config_logger.error("JSON config file was not found")
             raise FileNotFoundError("JSON config file was not found")
 
-        async with aiofiles.open(json_file_path, mode="r", encoding="utf-8") as file:
-            data = json.loads(await file.read())
+        self._prepare_for_file_load()
+        async with aiofiles.open(json_file_path, mode="r", encoding="utf-8") as json_file:
+            data = json.loads(await json_file.read())
 
         if data:
             # app
@@ -838,16 +973,7 @@ class AIMonitorSettings(BaseSettings):
 
             # exporters
             exporters_data: dict = data.get("exporters", {})
-            # redis
-            redis: dict = exporters_data.get("redis", {})
-            redis_enabled = redis.get("enabled", False)
-            if redis_enabled:
-                flattened_data["redis_enabled"] = redis_enabled
-                redis_url = redis.get("url")
-                if redis_url is not None:
-                    flattened_data["redis_url"] = redis_url
-            else:
-                flattened_data["redis_enabled"] = False
+
             # mongodb
             mongodb: dict = exporters_data.get("mongodb", {})
             mongodb_enabled: bool = mongodb.get("enabled", False)
@@ -876,6 +1002,9 @@ class AIMonitorSettings(BaseSettings):
                 prometheus_url = prometheus.get("url")
                 if prometheus_url is not None:
                     flattened_data["prometheus_url"] = prometheus_url
+                prometheus_bearer_token = prometheus.get("bearer_token")
+                if prometheus_bearer_token is not None:
+                    flattened_data["prometheus_bearer_token"] = prometheus_bearer_token
             else:
                 flattened_data["prometheus_enabled"] = False
             # kafka
@@ -955,6 +1084,21 @@ class AIMonitorSettings(BaseSettings):
                 kafka_buffer_timeout = kafka.get("buffer_timeout")
                 if kafka_buffer_timeout is not None and isinstance(kafka_buffer_timeout, (int, float)):
                     flattened_data["kafka_buffer_timeout"] = kafka_buffer_timeout
+
+                kafka_topics = kafka.get("topics", {})
+                if isinstance(kafka_topics, dict):
+                    kafka_topic_event = kafka_topics.get("event")
+                    kafka_topic_log = kafka_topics.get("log")
+                    kafka_topic_metric = kafka_topics.get("metric")
+                    kafka_topic_span = kafka_topics.get("span")
+                    if kafka_topic_event is not None:
+                        flattened_data["kafka_topic_event"] = kafka_topic_event
+                    if kafka_topic_log is not None:
+                        flattened_data["kafka_topic_log"] = kafka_topic_log
+                    if kafka_topic_metric is not None:
+                        flattened_data["kafka_topic_metric"] = kafka_topic_metric
+                    if kafka_topic_span is not None:
+                        flattened_data["kafka_topic_span"] = kafka_topic_span
             else:
                 flattened_data["kafka_enabled"] = False
             # open telemetry
@@ -968,15 +1112,28 @@ class AIMonitorSettings(BaseSettings):
                 otel_span_prefix = otel.get("span_prefix")
                 if otel_span_prefix is not None:
                     flattened_data["otel_mcp_span_prefix"] = otel_span_prefix
+                otel_endpoint = otel.get("endpoint")
+                if otel_endpoint is not None:
+                    flattened_data["otel_endpoint"] = otel_endpoint
+                otel_headers = otel.get("headers")
+                if otel_headers is not None:
+                    flattened_data["otel_headers"] = _wrap_secret_headers(otel_headers)
+                otel_signals = otel.get("signals", {})
+                for signal_name in ("traces", "metrics", "logs"):
+                    if signal_name in otel_signals:
+                        flattened_data[f"otel_{signal_name}_enabled"] = otel_signals[signal_name]
+                otel_metrics_export_interval_ms = otel.get("metrics_export_interval_ms")
+                if otel_metrics_export_interval_ms is not None:
+                    flattened_data["otel_metrics_export_interval_ms"] = otel_metrics_export_interval_ms
             # file
-            file: dict = exporters_data.get("file", {})
-            file_enabled: bool = file.get("enabled", False)
+            file_cfg: dict = exporters_data.get("file", {})
+            file_enabled: bool = file_cfg.get("enabled", False)
             if file_enabled:
                 flattened_data["file_enabled"] = True
-                file_path = next(iter(file.get(label) for label in _FILE_EXPORTER_LOGS_ALIASES if label in file), None)
+                file_path = next(iter(file_cfg.get(label) for label in _FILE_EXPORTER_LOGS_ALIASES if label in file_cfg), None)
                 if file_path is not None:
                     flattened_data["file_exporter_logs"] = Path(file_path)
-                max_mb_per_file = next(iter(file.get(label) for label in _MAX_MB_PER_FILE_ALIASES if label in file), None)
+                max_mb_per_file = next(iter(file_cfg.get(label) for label in _MAX_MB_PER_FILE_ALIASES if label in file_cfg), None)
                 if max_mb_per_file is not None:
                     flattened_data["max_mb_per_file"] = max_mb_per_file
             # sqlite
@@ -1032,29 +1189,7 @@ class AIMonitorSettings(BaseSettings):
 
         return conf
 
-    def _apply_flattened_file_values(self, flattened_data: dict[str, Any]) -> None:
-        yaml_loaded_fields = set()
-        for field_name, value in flattened_data.items():
-            if field_name not in self.__class__.model_fields:
-                continue
-            if value is None:
-                continue
-            yaml_loaded_fields.add(field_name)
-            if field_name in self.model_fields_set:
-                continue
-            try:
-                if field_name == "file_exporter_logs":
-                    if isinstance(value, (str, Path)):
-                        value = Path(value)
-                setattr(self, field_name, value)
-            except Exception:
-                pass
-        for field_name in yaml_loaded_fields:
-            self.model_fields_set.add(field_name)
-        self.sync_nested_sections()
-
-    @model_validator(mode="after")
-    def sync_nested_sections(self):
+    def _sync_nested_sections(self):
         self.app = AppSettings(env_code=self.env_code, logger_level=self.logger_level)
         self.tracking = TrackingSettings(
             enabled=self.enabled,
@@ -1071,14 +1206,18 @@ class AIMonitorSettings(BaseSettings):
             redis=RedisExporterSettings(enabled=self.redis_enabled, url=self.redis_url),
             mongodb=RedisExporterSettings(enabled=self.mongodb_enabled, url=self.mongodb_url),
             postgres=RedisExporterSettings(enabled=self.postgres_enabled, url=self.postgres_url),
-            prometheus=PrometheusExporterSettings(enabled=self.prometheus_enabled, url=self.prometheus_url),
+            prometheus=PrometheusExporterSettings(
+                enabled=self.prometheus_enabled,
+                url=self.prometheus_url,
+                bearer_token=self.prometheus_bearer_token,
+            ),
             kafka=KafkaExporterSettings(
                 enabled=self.kafka_enabled,
                 bootstrap_servers=self.kafka_bootstrap_servers,
                 security_protocol=self.kafka_security_protocol,
                 sasl_mechanism=self.kafka_sasl_mechanism,
-                sasl_username=self._unwrap_secret(self.kafka_sasl_username),
-                sasl_password=self._unwrap_secret(self.kafka_sasl_password),
+                sasl_username=self.kafka_sasl_username,
+                sasl_password=self.kafka_sasl_password,
                 group_id=self.kafka_group_id,
                 auto_offset_reset=self.kafka_auto_offset_reset,
                 retry_policy=self.kafka_retry_policy,
@@ -1097,11 +1236,25 @@ class AIMonitorSettings(BaseSettings):
                     batch_size=self.kafka_batch_size,
                     retries=self.kafka_retry_policy,
                 ),
+                topics=KafkaTopicsSettings(
+                    event=self.kafka_topic_event,
+                    metric=self.kafka_topic_metric,
+                    log=self.kafka_topic_log,
+                    span=self.kafka_topic_span,
+                )
             ),
             otel=OpenTelemetryExporterSettings(
                 enabled=self.otel_mcp_exporter_enabled,
                 service_name=self.otel_mcp_service_name,
                 span_prefix=self.otel_mcp_span_prefix,
+                endpoint=self.otel_endpoint,
+                headers=self.otel_headers,
+                signals=OpenTelemetrySignalsSettings(
+                    traces=self.otel_traces_enabled,
+                    metrics=self.otel_metrics_enabled,
+                    logs=self.otel_logs_enabled,
+                ),
+                metrics_export_interval_ms=self.otel_metrics_export_interval_ms,
             ),
             file=FileExporterSettings(
                 enabled=self.file_enabled,
@@ -1114,6 +1267,35 @@ class AIMonitorSettings(BaseSettings):
             ),
         )
         return self
+
+    def _prepare_for_file_load(self) -> None:
+        self.model_fields_set.difference_update(self._file_loaded_fields)
+        self._file_loaded_fields.clear()
+
+    def _apply_flattened_file_values(self, flattened_data: dict[str, Any]) -> None:
+        loaded_fields = set()
+        for field_name, value in flattened_data.items():
+            if field_name not in self.__class__.model_fields:
+                continue
+            if value is None:
+                continue
+            if field_name in self.model_fields_set:
+                continue
+            try:
+                if field_name == "file_exporter_logs":
+                    if isinstance(value, (str, Path)):
+                        value = Path(value)
+                setattr(self, field_name, value)
+                loaded_fields.add(field_name)
+            except Exception:
+                pass
+        self.model_fields_set.update(loaded_fields)
+        self._file_loaded_fields.update(loaded_fields)
+        self._sync_nested_sections()
+
+    @model_validator(mode="after")
+    def sync_nested_sections(self) -> Self:
+        return self._sync_nested_sections()
 
     @field_validator("redis_url", "mongodb_url", "postgres_url", mode="before")
     @classmethod

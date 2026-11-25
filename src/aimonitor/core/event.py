@@ -1,7 +1,7 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from uuid import uuid4
 import socket
 from aimonitor.configs.config import get_settings
@@ -34,9 +34,9 @@ class LogStatus(str, Enum):
     - debug: debug message.
     """
     CRITICAL = "critical" 
-    ERROR = "error",
-    WARNING = "warning",
-    INFO = "info",
+    ERROR = "error"
+    WARNING = "warning"
+    INFO = "info"
     DEBUG = "debug"
 
 
@@ -105,14 +105,21 @@ class SDKHealthStatus(str, Enum):
 
 
 class BaseSignal(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid4()), description="Unique identifier for the signal.")
+    id: str = Field(default="", description="Unique identifier for the signal, prefixed by the signal kind for easier routing and tracing.")
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc), description="The timestamp of when the signal was generated.")
     event_type: SignalType
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata associated with the signal.")
-    environment: str = Field(default=settings.app.env_code, description="The environment in which the signal was generated, e.g., 'production', 'staging', etc.")
+    environment: Optional[str] = Field(default=settings.app.env_code, description="The environment in which the signal was generated, e.g., 'production', 'staging', etc.")
     hostname: str = Field(default_factory=lambda: socket.gethostname(), description="The hostname of the machine where the signal was generated.")
     version: str = Field(default="", description="The version of the application or service generating the signal.")
 
+    @model_validator(mode="before")
+    @classmethod
+    def _ensure_id_with_signal_prefix(cls, data):
+        if isinstance(data, dict) and not data.get("id"):
+            event_type = data.get("event_type", SignalType.EVENT)
+            data["id"] = f"{event_type.value}-{uuid4()}"
+        return data
 
     @classmethod
     def as_sqlite_table(cls, table_name: str = "signal") -> str:
@@ -153,6 +160,7 @@ class MCPEvent(BaseSignal):
     status: Status = Field(default=Status.SUCCESS, description="The status of the event.")
     error: str = Field(default="", description="The error message of the event if any.")
     result: Any = Field(default=None, description="The result of the event.")
+    trace_id: str = Field(default_factory=lambda: str(uuid4()), description="The trace identifier shared with nested spans.")
     event_type: SignalType = Field(default=SignalType.EVENT, description="The kind of signal being emitted.")
 
 
@@ -169,6 +177,7 @@ class MetricEvent(BaseSignal):
     value: float | int
     metric_type: MetricType = MetricType.GAUGE
     labels: Dict[str, str] = Field(default_factory=dict)
+    unit: str = Field(default="", description="The unit of the measurement.")
 
 
 class SpanEvent(BaseSignal):

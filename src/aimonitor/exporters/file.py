@@ -8,6 +8,7 @@ import httpx
 import asyncio
 from datetime import datetime
 from datetime import timezone
+from collections.abc import Sequence
 from typing import List, Literal, Optional
 from aiofiles import os
 from typing import Protocol
@@ -77,11 +78,8 @@ class FileExporter(BaseExporter):
         if self.client and not self.client.closed:
             await self.client.close()  
         
-    async def export(self, event: BaseSignal) -> None:
-        await self.export_batch([event])
-    
     @with_retry
-    async def export_batch(self, event_batch: List[BaseSignal]) -> None:
+    async def export(self, event_batch: Sequence[BaseSignal]) -> None:
         if not self.client:
             logger.error(f"client for {self.__class__.__name__} not initialized")
         lines = []
@@ -123,7 +121,7 @@ class FileExporter(BaseExporter):
 
         return success
     
-    async def describe(self) -> dict:
+    async def describe(self) -> dict[str, object]:
         """
         Return diagnostic details for the FileExporter, including the current file and its size.
         """

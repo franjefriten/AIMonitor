@@ -1,0 +1,418 @@
+import os
+import socket
+import subprocess
+import time
+from datetime import datetime, timedelta, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from threading import Thread
+from uuid import uuid4
+
+import httpx
+import pytest
+
+from aimonitor.core.event import (
+    LogEvent,
+    LogStatus,
+    MCPEvent,
+    MetricEvent,
+    MetricType,
+    SpanEvent,
+    Status,
+)
+from aimonitor.core.registry import registry
+from aimonitor.exporters.opentelemetry import OpenTelemetryExporter
+
+
+@pytest.mark.integration
+@pytest.mark.opentelemetry
+@pytest.mark.asyncio
+async def test_opentelemetry_exporter_sends_authenticated_signals_to_collector():
+    pytest.importorskip(
+        "opentelemetry.exporter.otlp.proto.http.trace_exporter",
+        reason="The opentelemetry extra is required for this integration test",
+    )
+    try:
+        with socket.create_connection(("127.0.0.1", 4318), timeout=1):
+            pass
+    except OSError:
+        pytest.skip("The OpenTelemetry Collector integration container is not running")
+
+    collector_name = os.getenv(
+        "OTEL_COLLECTOR_CONTAINER_NAME",
+        "otel-collector",
+    )
+    bearer_token = os.getenv(
+        "OTEL_COLLECTOR_BEARER_TOKEN",
+        "integration-test-token",
+    )
+    run_id = uuid4().hex
+    endpoint = "http://127.0.0.1:4318"
+
+    async with httpx.AsyncClient(timeout=5) as client:
+        unauthorized = await client.post(
+            f"{endpoint}/v1/traces",
+            content=b"",
+            headers={"Authorization": "Bearer invalid-token"},
+        )
+    assert unauthorized.status_code == 401
+
+    exporter = OpenTelemetryExporter(
+        enabled=True,
+        service_name="otel-collector-integration-test",
+        endpoint=endpoint,
+        headers={"Authorization": f"Bearer {bearer_token}"},
+        traces_enabled=True,
+        metrics_enabled=True,
+        logs_enabled=True,
+        metrics_export_interval_ms=500,
+    )
+    try:
+        await exporter.connect()
+        await exporter.export(
+            [
+                MCPEvent(
+                    tool_name=f"otel_collector_e2e_trace_{run_id}",
+                    args={},
+                    result={},
+                    timestamp=datetime.now(timezone.utc),
+                    delta=0.01,
+                    status=Status.SUCCESS,
+                ),
+                MetricEvent(
+                    name=f"otel_collector_e2e_metric_{run_id}",
+                    value=1,
+                    metric_type=MetricType.COUNTER,
+                    timestamp=datetime.now(timezone.utc),
+                ),
+                LogEvent(
+                    message=f"otel_collector_e2e_log_{run_id}",
+                    level=LogStatus.INFO,
+                    source="integration-test",
+                    timestamp=datetime.now(timezone.utc),
+                ),
+            ]
+        )
+    finally:
+        await exporter.close()
+
+    expected_collector_output = (
+        f"otel_collector_e2e_trace_{run_id}",
+        f"otel_collector_e2e_metric_{run_id}",
+        f"otel_collector_e2e_log_{run_id}",
+        "otel-collector-integration-test",
+    )
+    deadline = time.monotonic() + 15
+    collector_output = ""
+    while time.monotonic() < deadline:
+        result = subprocess.run(
+            ["docker", "logs", collector_name],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=5,
+        )
+        collector_output = f"{result.stdout}\n{result.stderr}"
+        if all(marker in collector_output for marker in expected_collector_output):
+            break
+        time.sleep(0.25)
+
+    missing_markers = [
+        marker
+        for marker in expected_collector_output
+        if marker not in collector_output
+    ]
+    assert not missing_markers, (
+        "OpenTelemetry Collector did not report all exported signals. "
+        f"Missing output markers: {missing_markers}"
+    )
+
+
+@pytest.mark.integration
+@pytest.mark.opentelemetry
+@pytest.mark.asyncio
+async def test_opentelemetry_exporter_builds_private_nested_trace(monkeypatch):
+    pytest.importorskip(
+        "opentelemetry.exporter.otlp.proto.http.trace_exporter",
+        reason="The opentelemetry extra is required for this integration test",
+    )
+    from opentelemetry import trace
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+    import opentelemetry.exporter.otlp.proto.http.trace_exporter as otlp_trace_exporter
+
+    memory_exporter = InMemorySpanExporter()
+    received_headers = {}
+
+    def create_otlp_exporter(endpoint, headers=None):
+        received_headers.update(headers or {})
+        return memory_exporter
+
+    monkeypatch.setattr(
+        otlp_trace_exporter,
+        "OTLPSpanExporter",
+        create_otlp_exporter,
+    )
+    monkeypatch.setenv("OTEL_SDK_DISABLED", "false")
+    global_provider = trace.get_tracer_provider()
+
+    await registry.reset()
+    exporter = OpenTelemetryExporter(
+        enabled=True,
+        service_name="integration-test",
+        span_prefix="mcp.tool",
+        headers={"Authorization": "Bearer integration-token"},
+        traces_enabled=True,
+    )
+    await exporter.connect()
+    assert received_headers == {
+        "Authorization": "Bearer integration-token"
+    }
+    timestamp = datetime(2025, 1, 1, 12, 0, tzinfo=timezone.utc)
+    trace_id = str(uuid4())
+    parent = SpanEvent(
+        trace_id=trace_id,
+        span_id="parent-span",
+        parent_id=None,
+        operation_name="parent-operation",
+        timestamp=timestamp - timedelta(milliseconds=400),
+        delta=0.2,
+    )
+    child = SpanEvent(
+        trace_id=trace_id,
+        span_id="child-span",
+        parent_id="parent-span",
+        operation_name="child-operation",
+        timestamp=timestamp - timedelta(milliseconds=300),
+        delta=0.1,
+        status=Status.FAILURE,
+        error="nested failure",
+    )
+    root = MCPEvent(
+        trace_id=trace_id,
+        tool_name="successful_tool",
+        args={"secret": "not exported"},
+        result={"secret": "not exported"},
+        metadata={"secret": "not exported"},
+        timestamp=timestamp,
+        delta=0.5,
+        status=Status.SUCCESS,
+    )
+
+    try:
+        registry.register(exporter)
+        await registry.dispatch([child, parent, root])
+        await registry._queue.join()
+        await registry.shutdown()
+
+        spans_by_name = {
+            span.name: span
+            for span in memory_exporter.get_finished_spans()
+        }
+        assert set(spans_by_name) == {
+            "mcp.tool.successful_tool",
+            "parent-operation",
+            "child-operation",
+        }
+
+        root_span = spans_by_name["mcp.tool.successful_tool"]
+        parent_span = spans_by_name["parent-operation"]
+        child_span = spans_by_name["child-operation"]
+        assert root_span.parent is None
+        assert parent_span.parent.span_id == root_span.context.span_id
+        assert child_span.parent.span_id == parent_span.context.span_id
+        assert len({root_span.context.trace_id, parent_span.context.trace_id, child_span.context.trace_id}) == 1
+        assert root_span.resource.attributes["service.name"] == "integration-test"
+        assert root_span.start_time == int(timestamp.timestamp() * 1_000_000_000) - 500_000_000
+        assert root_span.end_time == int(timestamp.timestamp() * 1_000_000_000)
+        assert "mcp.args" not in root_span.attributes
+        assert "mcp.result" not in root_span.attributes
+        assert "mcp.metadata" not in root_span.attributes
+        assert child_span.attributes["mcp.status"] == Status.FAILURE.value
+        assert trace.get_tracer_provider() is global_provider
+    finally:
+        await registry.reset()
+
+
+@pytest.mark.integration
+@pytest.mark.opentelemetry
+@pytest.mark.asyncio
+async def test_opentelemetry_exporter_maps_metrics_and_logs(monkeypatch):
+    pytest.importorskip(
+        "opentelemetry.exporter.otlp.proto.http.metric_exporter",
+        reason="The opentelemetry extra is required for this integration test",
+    )
+    from opentelemetry.exporter.otlp.proto.http import _log_exporter, metric_exporter
+    try:
+        from opentelemetry.sdk._logs.export import InMemoryLogRecordExporter
+    except ImportError:
+        from opentelemetry.sdk._logs.export import InMemoryLogExporter as InMemoryLogRecordExporter
+    from opentelemetry.sdk.metrics.export import InMemoryMetricReader
+    import opentelemetry.sdk.metrics.export as sdk_metric_export
+
+    log_exporter = InMemoryLogRecordExporter()
+    received_headers = {}
+    metric_readers = []
+
+    def create_log_exporter(endpoint, headers=None):
+        received_headers["logs"] = headers
+        return log_exporter
+
+    def create_metric_exporter(endpoint, headers=None):
+        received_headers["metrics"] = headers
+        return object()
+
+    def make_metric_reader(exporter, export_interval_millis):
+        reader = InMemoryMetricReader()
+        metric_readers.append(reader)
+        return reader
+
+    monkeypatch.setattr(_log_exporter, "OTLPLogExporter", create_log_exporter)
+    monkeypatch.setattr(metric_exporter, "OTLPMetricExporter", create_metric_exporter)
+    monkeypatch.setattr(
+        sdk_metric_export,
+        "PeriodicExportingMetricReader",
+        make_metric_reader,
+    )
+    exporter = OpenTelemetryExporter(
+        enabled=True,
+        service_name="signal-test",
+        headers={"X-Api-Key": "integration-api-key"},
+        metrics_enabled=True,
+        logs_enabled=True,
+    )
+    await exporter.connect()
+    assert received_headers == {
+        "logs": {"X-Api-Key": "integration-api-key"},
+        "metrics": {"X-Api-Key": "integration-api-key"},
+    }
+
+    try:
+        await exporter.export(
+            [
+                MetricEvent(
+                    name="requests_total",
+                    value=2,
+                    metric_type=MetricType.COUNTER,
+                    unit="requests",
+                    labels={"route": "/items"},
+                    environment="DEV",
+                    version="1.2",
+                ),
+                MetricEvent(
+                    name="request_duration",
+                    value=1.5,
+                    metric_type=MetricType.HISTOGRAM,
+                    unit="s",
+                ),
+                MetricEvent(
+                    name="queue_depth",
+                    value=7,
+                    metric_type=MetricType.GAUGE,
+                    unit="items",
+                ),
+                LogEvent(
+                    message="service unavailable",
+                    level=LogStatus.CRITICAL,
+                    source="worker",
+                    environment="DEV",
+                    version="1.2",
+                    metadata={"private": "omitted"},
+                ),
+            ]
+        )
+        metric_data = metric_readers[0].get_metrics_data()
+        metrics = {
+            metric.name: metric
+            for resource_metrics in metric_data.resource_metrics
+            for scope_metrics in resource_metrics.scope_metrics
+            for metric in scope_metrics.metrics
+        }
+        assert set(metrics) == {"requests_total", "request_duration", "queue_depth"}
+        assert metrics["requests_total"].unit == "requests"
+        counter_point = metrics["requests_total"].data.data_points[0]
+        assert counter_point.value == 2
+        assert counter_point.attributes == {
+            "route": "/items",
+            "environment": "DEV",
+            "version": "1.2",
+        }
+        assert metrics["request_duration"].data.data_points[0].count == 1
+        assert metrics["queue_depth"].data.data_points[0].value == 7
+    finally:
+        await exporter.close()
+
+    log_record = log_exporter.get_finished_logs()[0].log_record
+    assert log_record.body == "service unavailable"
+    assert log_record.severity_text == "critical"
+    assert log_record.attributes == {
+        "source": "worker",
+        "environment": "DEV",
+        "version": "1.2",
+    }
+
+
+@pytest.mark.integration
+@pytest.mark.opentelemetry
+@pytest.mark.asyncio
+async def test_opentelemetry_exporter_authenticates_with_bearer_token(
+    monkeypatch,
+):
+    pytest.importorskip(
+        "opentelemetry.exporter.otlp.proto.http.trace_exporter",
+        reason="The opentelemetry extra is required for this integration test",
+    )
+
+    token = "integration-test-token"
+    received_requests = []
+
+    class AuthenticatedOTLPReceiver(BaseHTTPRequestHandler):
+        def do_POST(self):
+            content_length = int(self.headers.get("Content-Length", "0"))
+            self.rfile.read(content_length)
+            authorization = self.headers.get("Authorization")
+            status = 200 if authorization == f"Bearer {token}" else 401
+            received_requests.append((self.path, authorization, status))
+            self.send_response(status)
+            self.send_header("Content-Type", "application/x-protobuf")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def log_message(self, format, *args):
+            pass
+
+    monkeypatch.setenv("OTEL_SDK_DISABLED", "false")
+    with ThreadingHTTPServer(("127.0.0.1", 0), AuthenticatedOTLPReceiver) as receiver:
+        receiver_thread = Thread(target=receiver.serve_forever, daemon=True)
+        receiver_thread.start()
+        exporter = OpenTelemetryExporter(
+            enabled=True,
+            endpoint=f"http://127.0.0.1:{receiver.server_port}",
+            headers={"Authorization": f"Bearer {token}"},
+            traces_enabled=True,
+        )
+        try:
+            await exporter.connect()
+            await exporter.export(
+                [
+                    MCPEvent(
+                        tool_name="authenticated-tool",
+                        args={},
+                        result={},
+                        metadata={},
+                        timestamp=datetime.now(timezone.utc),
+                        delta=0.01,
+                        status=Status.SUCCESS,
+                    )
+                ]
+            )
+        finally:
+            try:
+                await exporter.close()
+            finally:
+                receiver.shutdown()
+                receiver_thread.join()
+
+    assert received_requests
+    assert all(
+        request == ("/v1/traces", f"Bearer {token}", 200)
+        for request in received_requests
+    )

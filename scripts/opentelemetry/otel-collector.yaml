@@ -1,10 +1,20 @@
-file_format: "1.0.0"
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+  bearertokenauth/server:
+    token: ${env:OTEL_COLLECTOR_BEARER_TOKEN}
 
 receivers:
   otlp:
     protocols:
       grpc:
+        endpoint: 0.0.0.0:4317
+        auth:
+          authenticator: bearertokenauth/server
       http:
+        endpoint: 0.0.0.0:4318
+        auth:
+          authenticator: bearertokenauth/server
 
 processors:
   batch:
@@ -13,11 +23,20 @@ processors:
 
 exporters:
   debug:
-    verbosity: normal
+    verbosity: detailed
 
 service:
+  extensions: [health_check, bearertokenauth/server]
   pipelines:
     traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]
+    logs:
       receivers: [otlp]
       processors: [batch]
       exporters: [debug]

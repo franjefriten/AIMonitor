@@ -8,13 +8,14 @@ on:
   workflow_dispatch:
 
 jobs:
-
-  unit-core:
+  minimum:
+    name: Minimum dependencies (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ['3.10', '3.11', '3.12', '3.13', '3.14']
-    
+
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
@@ -22,85 +23,105 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install dependencies
+      - name: Install minimum dependencies
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          python -m pip install -e .
+          python -m pip install -c .github/constraints/minimum-exporter-dependencies.txt -e ".[opentelemetry,sqlite,kafka,prometheus]" pytest pytest-asyncio
 
-      - name: Run unit tests
-        run: |
-          python -m pytest tests/unit -q
-          
-  optional-imports:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ['3.10', '3.11', '3.12', '3.13', '3.14']
-    steps:
-      - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip setuptools wheel
-          python -m pip install -e ".[opentelemetry,sqlite,kafka,prometheus]"
       - name: Check optional dependency imports
         run: |
           python -c "import opentelemetry, confluent_kafka, aiosqlite, prometheus_client"
 
-  full-test-suite:
+      - name: Start integration services
+        run: |
+          sh ./scripts/kafka/sh/run_kafka.sh
+          sh ./scripts/prometheus/sh/run_prometheus.sh
+          sh ./scripts/opentelemetry/sh/run_otel_collector.sh
+
+      - name: Wait for integration services
+        run: |
+          echo "Waiting for Kafka..."
+          until nc -z localhost 9092; do sleep 1; done
+          echo "Kafka is ready."
+          echo "Waiting for Prometheus..."
+          until nc -z localhost 9090; do sleep 1; done
+          until curl -s http://localhost:9090; do sleep 1; done
+          echo "Prometheus is ready."
+          echo "Waiting for OpenTelemetry Collector..."
+          until curl --fail --silent http://localhost:13133/; do sleep 1; done
+          echo "OpenTelemetry Collector is ready."
+
+      - name: Run unit and integration tests
+        run: |
+          python -m pytest tests/unit tests/integration -vv
+
+      - name: Stop Kafka
+        if: always()
+        run: sh ./scripts/kafka/sh/stop_kafka.sh
+
+      - name: Stop Prometheus
+        if: always()
+        run: sh ./scripts/prometheus/sh/stop_prometheus.sh
+
+      - name: Stop OpenTelemetry Collector
+        if: always()
+        run: sh ./scripts/opentelemetry/sh/stop_otel_collector.sh
+
+  latest:
+    name: Latest dependencies (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10', '3.11', '3.12', '3.13', '3.14']
+
     steps:
       - uses: actions/checkout@v4
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.14'
+          python-version: ${{ matrix.python-version }}
 
-      - name: Install dependencies
+      - name: Install latest dependencies
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          python -m pip install -e ".[opentelemetry,sqlite,kafka,prometheus]"
+          python -m pip install -e ".[opentelemetry,sqlite,kafka,prometheus]" pytest pytest-asyncio
 
-      - name: Run unit tests
+      - name: Check optional dependency imports
         run: |
-          python -m pytest tests/unit -q
-        
-      - name: Setup docker containers for integration tests on Linux
-        if: runner.os == 'Linux'
+          python -c "import opentelemetry, confluent_kafka, aiosqlite, prometheus_client"
+
+      - name: Start integration services
         run: |
           sh ./scripts/kafka/sh/run_kafka.sh
           sh ./scripts/prometheus/sh/run_prometheus.sh
-      
-      - name: Setup docker containers for integration tests on non-Linux
-        if: runner.os != 'Linux'
+          sh ./scripts/opentelemetry/sh/run_otel_collector.sh
+
+      - name: Wait for integration services
         run: |
-          call ./scripts/kafka/bat/run_kafka.bat
-          call ./scripts/prometheus/bat/run_prometheus.bat
-      
-      - name: Wait for services to be ready
-        run: |
-          echo "Waiting for kafka..."
+          echo "Waiting for Kafka..."
           until nc -z localhost 9092; do sleep 1; done
           echo "Kafka is ready."
-          echo "Waiting for prometheus..."
+          echo "Waiting for Prometheus..."
           until nc -z localhost 9090; do sleep 1; done
           until curl -s http://localhost:9090; do sleep 1; done
           echo "Prometheus is ready."
-      - name: Run integration tests
-        run: |
-          python -m pytest tests/integration -m integration -q
+          echo "Waiting for OpenTelemetry Collector..."
+          until curl --fail --silent http://localhost:13133/; do sleep 1; done
+          echo "OpenTelemetry Collector is ready."
 
-      - name: Tear down docker containers for integration tests on Linux
-        if: ${{always() && runner.os == 'Linux'}}
+      - name: Run all unit and integration tests
         run: |
-          sh ./scripts/kafka/sh/stop_kafka.sh
-          sh ./scripts/prometheus/sh/stop_prometheus.sh
+          python -m pytest tests/unit tests/integration -vv
 
-      - name: Tear down docker containers for integration tests on non-Linux
-        if: ${{always() && runner.os != 'Linux'}}
-        run: |
-          call ./scripts/kafka/bat/stop_kafka.bat
-          call ./scripts/prometheus/bat/stop_prometheus.bat
+      - name: Stop Kafka
+        if: always()
+        run: sh ./scripts/kafka/sh/stop_kafka.sh
+
+      - name: Stop Prometheus
+        if: always()
+        run: sh ./scripts/prometheus/sh/stop_prometheus.sh
+
+      - name: Stop OpenTelemetry Collector
+        if: always()
+        run: sh ./scripts/opentelemetry/sh/stop_otel_collector.sh

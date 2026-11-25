@@ -10,6 +10,8 @@ from aimonitor.utils.security import redact_sensitive_data
 from aimonitor.configs.config import get_settings
 from aimonitor.utils.context import _trace_context
 from aimonitor.core.trace import Trace, SpanEvent
+from aimonitor.core.event import LogStatus, MetricType
+
 
 settings = get_settings()
 
@@ -41,12 +43,12 @@ def monitor_tool(
     - A metric for execution time if `track_duration = True`:
         - name: "tool_execution_duration_seconds"
         - value: time performance
-        - metric_type: "histogram"
+        - metric_type: MetricType.HISTOGRAM
         - labels: tool_name, status
     - A metric for execution count if `track_call_count = True`:
         - name: "tool_execution_count"
         - value: 1
-        - metric_type: "counter"
+        - metric_type: MetricType.COUNTER
         - labels: tool_name, status
 
     NOTE: tool kwargs will be censored by sensitive keys set in config .yaml/.json file plus default ones
@@ -102,15 +104,17 @@ def monitor_tool(
                             status=status,
                             error=error_message,
                             delta=delta,
-                            version=version
+                            version=version,
+                            trace_id=trace.trace_id,
                         )
                     if settings.tracking.enabled and settings.tracking.track_metrics and track_duration:
                         logger.info(f"Emiting tool metrics event for {func.__name__}")
                         await monitor.record_metric(
                             name="tool_execution_duration_seconds",
                             value=delta,
-                            metric_type="histogram",
+                            metric_type=MetricType.HISTOGRAM,
                             labels={"tool_name": func.__name__, "status": status},
+                            environment=settings.app.env_code,
                             version=version
                         )
                     if settings.tracking.enabled and settings.tracking.track_metrics and track_call_count:
@@ -118,8 +122,9 @@ def monitor_tool(
                         await monitor.record_metric(
                             name="tool_execution_count",
                             value=1,
-                            metric_type="counter",
+                            metric_type=MetricType.COUNTER,
                             labels={"tool_name": func.__name__, "status": status},
+                            environment=settings.app.env_code,
                             version=version
                         )
                     logger.info(f"Tool '{func.__name__}' monitored in {delta:.4f}s")
@@ -154,9 +159,19 @@ async def record_log(
     """
     
     kwargs = redact_sensitive_data(kwargs)
+    if level == "critical":
+        loglevel = LogStatus.CRITICAL
+    elif level == "error":
+        loglevel = LogStatus.ERROR
+    elif level == "warning":
+        loglevel = LogStatus.WARNING
+    elif level == "info":
+        loglevel = LogStatus.INFO
+    elif level == "debug":
+        loglevel = LogStatus.DEBUG
     await monitor.log(
         message=message,
-        level=level,
+        level=loglevel,
         metadata={**kwargs, "extra_data": args},
         environment=settings.app.env_code,
         version=version
@@ -236,7 +251,8 @@ def track_tool_call_event(func: Callable) -> Callable:
                         status=status,
                         error=error_message,
                         delta=delta,
-                        version=""
+                        version="",
+                        trace_id=trace.trace_id,
                     )
                 logger.info(f"Tool '{func.__name__}' monitored in {delta:.4f}s")
             except Exception as registry_err:
@@ -318,7 +334,7 @@ def track_tool_metrics(
                         await monitor.record_metric(
                             name="tool_execution_duration_seconds",
                             value=delta,
-                            metric_type="histogram",
+                            metric_type=MetricType.HISTOGRAM,
                             labels={"tool_name": func.__name__, "status": status},
                             environment=settings.app.env_code
                         )
@@ -326,7 +342,7 @@ def track_tool_metrics(
                         await monitor.record_metric(
                             name="tool_execution_count",
                             value=1,
-                            metric_type="counter",
+                            metric_type=MetricType.COUNTER,
                             labels={"tool_name": func.__name__, "status": status},
                             environment=settings.app.env_code
                         )

@@ -1,69 +1,55 @@
-# Diseño de healthchecks, estado y recuperación
+# Healthcheck, State, and Recovery Design
 
-## 1. Objetivo
+## 1. Objective
 
-Este documento propone una evolución de los healthchecks de AIMonitor. La intención no es convertir el SDK en un orquestador completo, sino conseguir cuatro capacidades claras:
+AIMonitor healthchecks should provide four capabilities:
 
-1. Saber si el proceso está vivo.
-2. Saber si los exporters están preparados para trabajar.
-3. Conservar el último resultado de cada healthcheck, incluyendo timestamps y errores.
-4. Intentar recuperar exporters con fallos transitorios sin ocultar fallos persistentes.
+1. Determine whether the process is alive.
+2. Determine whether registered exporters are ready to work.
+3. Preserve the last result of each healthcheck, including timestamps and errors.
+4. Attempt recovery from transient exporter failures without hiding persistent failures.
 
-El diseño está pensado para que la implementación pueda hacerse por etapas y sirva también como ejercicio de aprendizaje sobre estado, ciclo de vida, concurrencia y tolerancia a fallos.
+The design is incremental and should support learning about state, lifecycle, concurrency, and fault tolerance.
 
-## 2. Estado actual
+## 2. Current state
 
-La API pública ya separa dos conceptos importantes:
+The public API separates three concepts:
 
-- `get_process_liveness()`: debe ser barato y no contactar con dependencias externas.
-- `get_sdk_readiness()`: informa sobre los exporters registrados y sus dependencias.
-- `get_telemetry_status()`: consulta la disponibilidad local del provider de OpenTelemetry.
+- `get_process_liveness()` is cheap and must not contact external dependencies.
+- `get_sdk_readiness()` reports registered exporters and their dependencies.
+- `get_telemetry_status()` checks local OpenTelemetry provider availability.
 
-La implementación actual de `get_sdk_readiness()` lee el snapshot cacheado del `ExporterRegistry` en el momento de la consulta. Esto evita probes adicionales y mantiene una única fuente de verdad para el estado.
+`get_sdk_readiness()` reads the cached snapshot in `ExporterRegistry`. It does not perform extra probes during a request, and the snapshot is the source of truth.
 
-La primera versión obtenía el estado llamando a `status()` sobre los exporters en cada consulta, pero ese enfoque tenía varias limitaciones:
+The registry worker is also responsible for registration, export workers, queues, shutdown, and recovery. Therefore, the registry is the natural owner of exporter lifecycle and health state.
 
-- Cada petición de readiness puede ejecutar trabajo adicional.
-- No existe un historial del último healthcheck.
-- No se distingue entre un exporter que nunca ha sido comprobado y uno que acaba de recuperarse.
-- No se conservan contadores de fallos consecutivos.
-- El estado dependía de la implementación concreta de `status()` de cada exporter.
+## 3. Health state ownership
 
-El worker de healthchecks está en `core/registry.py`, que también controla el registro, los workers de exportación, la cola y el cierre de exporters. Por tanto, el registry es el lugar que conoce todo el ciclo de vida.
+Do not create another singleton for health state. The state belongs to `ExporterRegistry`, which owns:
 
-## 3. ¿Debe existir otro singleton?
+- Registered exporters.
+- The healthcheck worker.
+- `register()` and `shutdown()`.
+- Recovery attempts.
+- The relationship between an exporter instance and its health result.
 
-No se recomienda crear otro singleton para el estado.
-
-El estado de health debe pertenecer al `ExporterRegistry`, porque el registry es el propietario de:
-
-- Los exporters registrados.
-- El worker que ejecuta los healthchecks.
-- Las operaciones `register()` y `shutdown()`.
-- La eventual recuperación de exporters.
-- La relación entre una instancia concreta y su resultado de healthcheck.
-
-Otro singleton introduciría estado global duplicado y una segunda fuente de verdad. También haría más difícil razonar sobre tests, reinicios y múltiples event loops.
-
-La idea preferida es que el registry tenga un estado privado:
+The registry should keep private state keyed by exporter instance identity:
 
 ```python
 self._health: dict[int, ExporterHealth] = {}
 ```
 
-La clave debe identificar la instancia del exporter, no solamente el nombre de su clase. Puede haber dos exporters del mismo tipo con destinos diferentes.
+Instance identity is important because two exporters of the same class may use different destinations.
 
-La API pública no debería devolver directamente ese diccionario mutable. Es mejor que el registry genere una copia serializable mediante un método como:
+The public API must not expose the mutable dictionary. `health_snapshot()` should return a serializable copy:
 
 ```python
 snapshot = registry.health_snapshot()
 ```
 
-El snapshot es una vista del estado, no el estado interno que otros componentes puedan modificar accidentalmente.
+## 4. Recommended state model
 
-## 4. Modelo de estado recomendado
-
-El estado puede encapsularse en un `dataclass` en lugar de usar diccionarios sin estructura:
+Use a structured `dataclass` rather than an untyped dictionary:
 
 ```python
 @dataclass
@@ -78,36 +64,30 @@ class ExporterHealth:
     message: str = ""
 ```
 
-El dataclass aporta nombres explícitos, valores por defecto y un lugar único donde ampliar el modelo. El JSON se puede construir posteriormente con una función de serialización.
+### States
 
-### Estados
-
-| Estado | Significado |
+| State | Meaning |
 | --- | --- |
-| `starting` | El exporter está registrado, pero todavía no tiene un healthcheck concluido. |
-| `healthy` | El último healthcheck terminó correctamente. |
-| `recovering` | Existe un fallo y se está intentando reconectar o reconstruir el exporter. |
-| `down` | El exporter debería estar activo, pero el fallo persiste. |
-| `stopped` | El exporter se ha detenido explícitamente como parte del cierre o de una orden administrativa. |
-| `unused` | El exporter está deshabilitado, no tiene destino configurado o no participa en la ejecución. |
+| `starting` | The exporter is registered, but no healthcheck has completed. |
+| `healthy` | The latest healthcheck completed successfully. |
+| `recovering` | A failure occurred and reconnection or reconstruction is in progress. |
+| `down` | The exporter should be active, but a healthcheck reports a persistent failure. |
+| `stopped` | The exporter was deliberately stopped during shutdown or administration. |
+| `unused` | The exporter is disabled, has no configured destination, or does not participate in active execution. |
 
-`starting` es útil porque evita clasificar como `healthy` un exporter cuyo estado todavía no conocemos.
+`starting`, `stopped`, `down`, and `unused` describe different situations and must not be used interchangeably.
 
-`stopped` y `down` no significan lo mismo. `stopped` es una decisión deliberada del ciclo de vida; `down` es un fallo inesperado o persistente.
+## 5. Timestamps and snapshots
 
-`unused` debería reservarse para exporters que realmente no forman parte de la ejecución activa. No debe usarse como sinónimo de `down` ni de "todavía no comprobado".
+Track at least:
 
-## 5. Timestamps y snapshot
+- `checked_at`: when the current snapshot is created.
+- `last_check_started_at`: when the latest healthcheck started.
+- `last_check_finished_at`: when the latest healthcheck finished.
+- `last_success_at`: the latest successful check.
+- `last_failure_at`: the latest failed check.
 
-El estado debería distinguir al menos estos momentos:
-
-- `checked_at`: cuándo se construye el snapshot actual.
-- `last_check_started_at`: cuándo comenzó el último healthcheck.
-- `last_check_finished_at`: cuándo terminó.
-- `last_success_at`: última comprobación correcta.
-- `last_failure_at`: último fallo.
-
-Todos deberían usar timestamps conscientes de zona horaria, preferiblemente UTC:
+Use timezone-aware UTC timestamps:
 
 ```python
 from datetime import UTC, datetime
@@ -115,7 +95,7 @@ from datetime import UTC, datetime
 now = datetime.now(UTC)
 ```
 
-Un snapshot podría tener esta forma:
+Example snapshot:
 
 ```json
 {
@@ -141,83 +121,70 @@ Un snapshot podría tener esta forma:
 }
 ```
 
-El método `describe()` de cada exporter puede devolver detalles propios, pero no es la fuente del historial ni del estado del registry. El worker debe registrar el resultado después de cada healthcheck.
+`describe()` may return exporter-specific diagnostics, but it is not the source of health history or registry state. The health worker records one result after every check.
 
 ### Healthcheck result contract
 
 The registry distinguishes an unhealthy exporter from a healthcheck execution failure:
 
 - `HEALTHY`: the healthcheck completed and returned `True`.
-- `DOWN`: the healthcheck completed and returned `False`; the exporter is known to be unhealthy.
-- `FAILURE`: the healthcheck raised an exception or exceeded its timeout; the exporter is also considered unhealthy, but the check did not produce a valid boolean result.
+- `DOWN`: the healthcheck completed and returned `False`.
+- `FAILURE`: the healthcheck raised or timed out.
 - `RECOVERING`: recovery is being attempted after an unhealthy result.
 
-Both `DOWN` and `FAILURE` contribute to the SDK's unhealthy counts. Their separate values preserve the cause of the unhealthy state for operators and telemetry consumers.
+Both `DOWN` and `FAILURE` contribute to unhealthy counts. Their separate values preserve the diagnosis for operators and telemetry consumers.
 
-## 6. Separar `describe()` de `healthcheck()`
+## 6. Separate responsibilities
 
-Conviene mantener responsabilidades diferentes:
+- `healthcheck()` performs an active probe and may contact a dependency.
+- `describe()` returns diagnostic information.
+- `health_snapshot()` returns historical state maintained by the registry.
 
-- `healthcheck()`: realiza una comprobación activa y puede contactar con la dependencia.
-- `describe()`: devuelve información diagnóstica del exporter.
-- `health_snapshot()`: devuelve el estado histórico mantenido por el registry.
+`get_sdk_readiness()` must read the cached snapshot rather than launch a new probe or invoke `describe()`. This keeps readiness predictable and cheap.
 
-En particular, `get_sdk_readiness()` debe leer el snapshot cacheado en lugar de lanzar probes nuevos o invocar `describe()`. Esto hace que la ruta sea predecible y barata.
+Readiness can therefore be slightly stale. Expose `last_check_finished_at`, and optionally `stale: true` when the result exceeds a maximum age.
 
-Una consecuencia operativa es que readiness puede mostrar un resultado ligeramente antiguo. Esa antigüedad es controlable exponiendo `last_check_finished_at` y, si se desea, un `stale: true` cuando el resultado supere una edad máxima.
+## 7. Timeout and interval
 
-## 7. Timeout e intervalo
-
-El intervalo indica cada cuánto se ejecuta un healthcheck. El timeout indica cuánto puede durar uno.
-
-No deben compartir necesariamente el mismo valor:
+The interval determines how often a healthcheck runs. The timeout determines how long one check may take. They do not need to share a value:
 
 ```text
-healthcheck_interval = 60 segundos
-healthcheck_timeout = 5 segundos
+healthcheck_interval = 60 seconds
+healthcheck_timeout = 5 seconds
 ```
 
-Usar el intervalo completo como timeout puede bloquear el ciclo durante demasiado tiempo y retrasar la comprobación de otros exporters. La configuración debería incorporar un campo separado, por ejemplo:
+The initial implementation should retain a sequential loop and add a separate timeout. A sequential loop is easier to test and avoids a burst of tasks, although a slow exporter can delay later exporters.
 
-```python
-healthcheck_timeout: float = 5.0
-```
+## 8. Automatic recovery
 
-También hay que decidir si el loop será secuencial o concurrente. El enfoque secuencial es más sencillo y evita una avalancha de tareas, pero un exporter lento puede retrasar a los demás. Una evolución posterior podría usar una tarea por exporter con límites y cancelación controlada.
+Recovery is useful, but it must not be confused with export retries.
 
-Para el primer acercamiento, se puede mantener el loop secuencial y corregir el timeout. Es un cambio pequeño y fácil de probar.
+### Operation retries
 
-## 8. Recuperación automática
-
-La recuperación automática es útil, pero no debe confundirse con los retries de exportación.
-
-### Retries de operación
-
-La política existente de retries está pensada para una operación concreta:
+Export retries target one operation:
 
 ```text
-fallo al enviar un batch
-    -> reintentar el envío
+send batch -> send fails -> retry send
 ```
 
-Su objetivo es tolerar un fallo puntual de red o de la dependencia.
+Their purpose is to tolerate a temporary network or dependency failure.
 
-### Recuperación del exporter
+### Exporter recovery
 
-La recuperación trata el ciclo de vida de una instancia:
+Recovery owns the lifecycle of an exporter instance:
 
 ```text
-healthcheck falla
-    -> registrar el fallo
-    -> marcar recovering
-    -> cerrar o reconectar
-    -> comprobar de nuevo
-    -> healthy o down
+healthcheck fails
+  -> record failure
+  -> mark recovering
+  -> close or reconnect
+  -> healthcheck again
+  -> healthy or down
 ```
 
-Por eso no conviene reutilizar directamente el decorador de retries de `export_batch()`. Son políticas distintas, con límites, logs y consecuencias diferentes.
+Do not reuse the `export()` retry decorator for recovery. They are separate policies with different limits, logs, and consequences.
 
-El contrato base podría incorporar una operación opcional:
+The base contract may include:
 
 ```python
 async def recover(self) -> bool:
@@ -226,9 +193,9 @@ async def recover(self) -> bool:
     return True
 ```
 
-Pero no todos los exporters tienen una conexión que pueda reconstruirse. Una implementación por defecto podría devolver `False`, o la recuperación podría comprobar explícitamente si el exporter ofrece el método.
+Not every exporter has a connection that can be reconstructed. A default implementation may return `False`, or recovery may explicitly check for a supported `recover()` implementation.
 
-### Política mínima recomendada
+### Minimum recovery policy
 
 ```python
 recovery_enabled = True
@@ -236,44 +203,39 @@ recovery_max_attempts = 3
 recovery_backoff_seconds = 5.0
 ```
 
-Flujo sugerido:
+Recommended flow:
 
-1. El primer fallo actualiza el estado y los contadores.
-2. El exporter pasa a `recovering` si la recuperación está habilitada.
-3. Se ejecuta `recover()` con backoff.
-4. Después de recuperar, se ejecuta un healthcheck.
-5. Si funciona, pasa a `healthy` y se reinician los fallos consecutivos.
-6. Si se agotan los intentos, pasa a `down`.
-7. El exporter no se elimina automáticamente del registry.
+1. The first failure updates state and counters.
+2. The exporter enters `recovering` if recovery is enabled.
+3. `recover()` runs with bounded backoff.
+4. A healthcheck follows recovery.
+5. A successful healthcheck restores `healthy`.
+6. Exhausted attempts produce `down`.
+7. The exporter is retained in the registry.
 
-No se recomienda intentar recuperar indefinidamente. Un loop permanente de reconexión puede generar ruido, consumo de recursos y presión sobre un servicio externo caído.
+Do not recover indefinitely. Permanent reconnection loops create noise, consume resources, and pressure already unavailable services.
 
-La estrategia de reconstruir completamente un exporter requiere una factory o una función creadora, porque el registry no siempre conoce los argumentos necesarios para crear una instancia nueva. Por eso el primer paso debería ser `close()` más `connect()`; la recreación puede añadirse después mediante una política explícita.
+If the registry must rebuild a complete exporter, it needs a factory or creator function because it does not always know constructor arguments. The first step should be `close()` plus `connect()`; reconstruction can be added later.
 
-## 9. Fallos durante la exportación
+## 9. Export failures
 
-Actualmente el registry elimina exporters que fallan durante `_send_batch()`. Esto es una decisión importante que debe revisarse antes de añadir recovery.
+The registry should not remove an exporter immediately after `_send_batch()` fails. Immediate removal:
 
-Si un exporter se elimina inmediatamente:
+- Makes it disappear from readiness.
+- Loses its health history.
+- Prevents automatic recovery through the registry.
 
-- Ya no aparece en readiness.
-- Se pierde su historial.
-- No puede recuperarse automáticamente desde el registry.
+Prefer retaining the exporter, marking it `down` or `recovering`, and optionally skipping exports temporarily. A removal policy requires a separate configured-exporter registry and a factory for arbitrary instances.
 
-Para soportar recuperación, sería preferible conservarlo en la colección, marcarlo como `down` o `recovering` y decidir si se omiten temporalmente sus envíos.
+## 10. Reset and lifecycle
 
-Otra posibilidad es mantener la eliminación como comportamiento opcional, pero entonces debe existir un registro separado de exporters configurados y una factory capaz de recrearlos. Sin una factory no hay forma general de reconstruir una instancia arbitraria.
+Do not place exporter state inside `AIMonitorSettings.reset()`. Configuration and runtime state are separate responsibilities.
 
-## 10. Reset y ciclo de vida
-
-No conviene meter el estado de exporters dentro de `AIMonitorSettings.reset()`. La configuración y el runtime son responsabilidades diferentes.
-
-La separación recomendada es:
+Recommended separation:
 
 ```python
 async def shutdown(self) -> None:
     """Stop workers and close exporters."""
-    ...
 
 async def reset(self) -> None:
     """Reset runtime state for tests or reconfiguration."""
@@ -281,23 +243,15 @@ async def reset(self) -> None:
     self._health.clear()
 ```
 
-`shutdown()` debe representar una parada real. Puede dejar los exporters en estado `stopped` mientras genera un snapshot final, si ese comportamiento resulta útil.
+`shutdown()` represents a real stop and may leave exporters `stopped` in the final snapshot.
 
-`reset()` se utiliza para tests o para una reconfiguración completa y elimina el historial. Es el método que debería usar el fixture de pytest:
+`reset()` is used for tests or complete reconfiguration and removes history.
 
-```python
-await registry.reset()
-get_settings().reset()
-internal_telemetry_manager.reset()
-```
+The telemetry manager has its own reset, but it must not own health state. Telemetry observes and emits data; the registry controls lifecycle.
 
-El manager de telemetría sigue teniendo su propio `reset()`, pero no debe ser el dueño del estado de health. La telemetría observa y emite datos; el registry controla el ciclo de vida.
+## 11. Resource metrics
 
-## 11. Métricas de recursos
-
-Las métricas de recursos son interesantes, pero no deberían bloquear la primera versión del healthcheck.
-
-El registry controla mejor estas métricas:
+Queue and worker metrics are useful but should not block the first implementation:
 
 ```json
 {
@@ -311,173 +265,75 @@ El registry controla mejor estas métricas:
 }
 ```
 
-Estas métricas ayudan a detectar saturación y lentitud sin depender de herramientas externas.
+Process CPU and RSS may be collected with `psutil`, but exporter- or thread-level CPU attribution should not be implemented initially.
 
-La CPU y la memoria del proceso pueden añadirse opcionalmente mediante `psutil`:
+Start by measuring queue depth, workers, batch duration, and failures.
 
-```json
-{
-  "process_cpu_percent": 2.4,
-  "process_rss_bytes": 52428800
-}
-```
+## 12. Required tests
 
-No recomendaría medir CPU por exporter o por thread al principio:
+Add focused tests for:
 
-- El SDK usa principalmente `asyncio`.
-- Un exporter puede usar threads internos que el registry no controla.
-- La atribución de CPU por thread no siempre es portable ni representativa.
-- Añade complejidad y una dependencia adicional.
+- Initial `starting` state.
+- Successful healthcheck.
+- `False` healthcheck result.
+- Raised healthcheck and timeout.
+- Recovery success and recovery exhaustion.
+- Reset behavior.
+- Stale snapshot handling.
+- Shutdown transition to `stopped`.
 
-Primero conviene medir cola, workers, duración de batches y errores. Si aparecen problemas de rendimiento reales, entonces se puede estudiar instrumentación más detallada.
+## 13. Recommended implementation order
 
-## 12. Tests necesarios
+1. Add the private `ExporterHealth` model.
+2. Record healthcheck start and finish timestamps.
+3. Add `health_snapshot()` and use it from the public readiness API.
+4. Separate `DOWN`, `FAILURE`, and `RECOVERING`.
+5. Add healthcheck timeout.
+6. Add bounded recovery.
+7. Retain failed exporters in the registry.
+8. Add resource metrics only after the lifecycle contract is stable.
 
-La implementación debería crecer acompañada de tests pequeños y específicos.
+## 14. Decisions to make explicit
 
-### Estado inicial
+For every exporter, document:
 
-- Un exporter registrado empieza en `starting`.
-- `get_process_liveness()` no invoca healthchecks.
-- Un registry sin exporters devuelve `empty`.
+- Whether it supports healthchecks.
+- Whether it supports recovery.
+- Which result is `down` versus `failure`.
+- What happens during close.
+- Whether delivery is acknowledged synchronously or asynchronously.
 
-### Healthcheck correcto
+Record these decisions in tests and operational documentation.
 
-- Un check correcto pasa a `healthy`.
-- Se actualiza `last_check_finished_at`.
-- Se actualiza `last_success_at`.
-- `consecutive_failures` vuelve a cero.
+## 15. Merge readiness
 
-### Healthcheck fallido
+The implementation should not be merged until the complete test suite can be collected and executed successfully.
 
-- Se actualiza `last_failure_at`.
-- Se incrementa `consecutive_failures`.
-- El mensaje del error queda disponible.
-- El exporter no desaparece accidentalmente del snapshot.
+The initial test suite had a module collection conflict because two test modules shared the same basename. Renaming the Kafka integration module resolved collection. Integration tests still require a Kafka broker when enabled.
 
-### Timeout
+Before calling the design stable:
 
-- Un exporter que excede `healthcheck_timeout` se trata como fallido.
-- El loop continúa con los demás exporters.
-- El intervalo no se usa como timeout.
+- Resolve product defects in Kafka delivery configuration.
+- Align Prometheus integration tests with supported signal types.
+- Verify shutdown and restart behavior.
+- Confirm that unit tests pass without external services.
+- Document how external integration fixtures are enabled.
 
-### Recuperación
+## 16. Telemetry producer and consumer contract
 
-- Un exporter que falla y después recupera vuelve a `healthy`.
-- Se reinician los contadores de fallos consecutivos.
-- Se respeta `recovery_max_attempts`.
-- Después del límite queda en `down`.
-- El backoff no crea varias recuperaciones simultáneas para el mismo exporter.
+The telemetry API has two explicit responsibilities:
 
-### Reset
+- `TelemetryProducer` emits SDK observations.
+- `TelemetryConsumer` reads registry health and local OpenTelemetry status.
 
-- `registry.reset()` cancela workers.
-- Cierra exporters.
-- Vacía exporters, cola y snapshots.
-- No conserva datos entre tests.
-- La identidad del singleton se mantiene si el proyecto depende de ella.
+The producer never owns health state. The registry owns snapshots, transitions, counters, and recovery.
 
-## 13. Orden de implementación recomendado
-
-Para mantener el cambio manejable, se propone este orden:
-
-1. Añadir el modelo `ExporterHealth`.
-2. Añadir `_health` al `ExporterRegistry`.
-3. Actualizar el worker para guardar timestamps, estados y contadores.
-4. Añadir `health_snapshot()` y hacer que SDK readiness lo utilice.
-5. Separar `healthcheck_timeout` de `healthcheck_interval`.
-6. Añadir `registry.reset()` y conectarlo al fixture.
-7. Escribir tests de estado, timeout y reset.
-8. Añadir `recover()` opcional.
-9. Añadir backoff, límite de intentos y tests de recuperación.
-10. Añadir métricas de cola y workers.
-11. Evaluar métricas opcionales de proceso con `psutil`.
-
-Este orden permite validar primero la semántica del estado antes de introducir reconexiones automáticas.
-
-## 14. Decisiones que conviene tomar explícitamente
-
-Antes de cerrar la implementación, hay varias decisiones de producto y operación:
-
-- ¿Readiness debe ser estricto y fallar si un solo exporter está `down`, o debe devolver `degraded` si todavía hay exporters sanos?
-- ¿Un exporter `recovering` debe considerarse listo?
-- ¿Un exporter `unused` cuenta en `total_exporters`?
-- ¿Cuánto tiempo puede tener un snapshot antes de considerarse obsoleto?
-- ¿Los fallos de exportación deben retirar exporters o conservarlos para recovery?
-- ¿La recuperación se hace mediante reconexión o se permite recrear instancias?
-- ¿Debe existir un método público para registrar y detener exporters individualmente?
-- ¿Las métricas de proceso deben ser dependencia obligatoria u opcional?
-
-No hay una respuesta universal. Lo importante es que cada decisión quede reflejada en tests y en la documentación operacional.
-
-## 15. Resultado esperado
-
-La arquitectura final debería quedar conceptualmente así:
-
-```text
-ExporterRegistry
-    ├── exporters
-    ├── workers
-    ├── queue
-    ├── health state por exporter
-    ├── healthcheck loop
-    ├── recovery policy
-    └── health_snapshot()
-
-telemetry.api
-    ├── get_process_liveness() -> comprobación local y barata
-    ├── get_sdk_readiness()    -> snapshot cacheado del registry
-    └── get_telemetry_status() -> disponibilidad local de OTel
-
-InternalTelemetryManager
-    └── observa y publica métricas/traces, pero no posee el estado
-```
-
-## 16. Merge Readiness and Remaining Work
-
-The healthcheck implementation is functionally advanced enough for a focused review, but the branch should not be merged until the complete test suite can be collected and executed successfully.
-
-### Test collection issue
-
-The full pytest run initially failed during test collection because two modules shared the same basename:
-
-- `tests/integration/test_kafka_exporter.py`
-- `tests/unit/test_kafka_exporter.py`
-
-The integration module has now been renamed to `test_kafka_exporter_integration.py`, so collection succeeds. The integration test still requires a Kafka broker when integration tests are enabled.
-
-The current full-suite run collects 51 tests and reports 44 passed, 3 failed, and 3 skipped. The remaining failures are unrelated to the healthcheck contract: the Kafka exporter passes an unsupported `acks` argument to the installed `AIOProducer`, and the Prometheus integration tests are inconsistent with the exporter's current supported signal types.
-
-### Healthcheck priorities before calling the design stable
-
-1. Keep the registry snapshot as the single source of truth for readiness. `telemetry.api.get_sdk_readiness()` now reads the cached snapshot instead of querying each exporter directly. Exporter `describe()` results remain diagnostic and must not determine health.
-2. Define the distinction between `DOWN` and `FAILURE` explicitly. The decision must be consistent across `core/registry.py`, tests, telemetry, and this documentation.
-3. Add contract tests for the complete lifecycle: `STARTING -> HEALTHY`, `HEALTHY -> DOWN -> RECOVERING -> HEALTHY`, recovery exhaustion, mixed healthy and failed exporters, shutdown, and multiple exporters of the same class.
-4. Review the operational documentation and examples before release. The healthcheck documentation should contain a valid custom exporter example and describe the actual timeout, recovery, readiness, and snapshot behavior.
-
-### Merge recommendation
-
-Do not merge until the remaining integration failures are either fixed or explicitly excluded from the branch contract. The healthcheck implementation itself passes the focused and unit test suites, and can be merged as an incremental foundation once the complete suite is green. Readiness unification, lifecycle coverage, and the `describe()` contract are now included in this change.
-
-La idea central es mantener una única fuente de verdad para el ciclo de vida: el registry. La API de health debe ser una vista segura y serializable de ese estado, y la recuperación debe ser una política explícita, limitada y observable.
-
-## 16. Telemetry Producer and Consumer Contract
-
-The telemetry API is split into two explicit responsibilities:
-
-- `TelemetryProducer` records internal SDK events, exporter healthcheck results, and metrics on a best-effort basis.
-- `TelemetryConsumer` provides local telemetry availability and SDK health queries.
-
-The producer never owns health state. The registry owns exporter snapshots, transitions, counters, and recovery. The consumer reads that state through `get_sdk_readiness()` and reports local OpenTelemetry availability through `get_telemetry_status()`.
-
-This API does not query an external OpenTelemetry backend. OpenTelemetry SDK providers are generally write-oriented; querying exported traces or metrics requires the backend-specific client or API.
-
-The canonical public functions are:
+Canonical public functions:
 
 ```python
-await get_process_liveness()
-await get_sdk_readiness()
-get_telemetry_status()
+get_process_liveness
+get_sdk_readiness
+get_telemetry_status
 ```
 
-The old `get_liveness()`, `get_readiness()`, `track_*` helpers, and the status-building helpers based on exporter `describe()` are intentionally removed while the project is still in development. This prevents two competing health models from surviving in the public API.
+The legacy `get_liveness()`, `get_readiness()`, `track_*`, and exporter-`describe()`-based status helpers should not remain public.

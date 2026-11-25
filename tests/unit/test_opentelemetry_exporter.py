@@ -1,130 +1,122 @@
-import types
-from datetime import datetime, timezone
+import asyncio
 from unittest.mock import patch
 
-from aimonitor.core.event import MCPEvent, Status
+import pytest
+
+import aimonitor.exporters.opentelemetry as otel_exporter_module
+from aimonitor.core.event import SpanEvent
+from aimonitor.core.exceptions import (
+    ExporterConfigurationError,
+    OpenTelemetryCompatibilityError,
+    OptionalDependencyMissingError,
+)
 from aimonitor.exporters.opentelemetry import OpenTelemetryExporter
 
-
-class _DummySpan:
-    def __init__(self):
-        self.attributes = {}
-
-    def set_attribute(self, key, value):
-        self.attributes[key] = value
-
-
-class _SpanContext:
-    def __init__(self, span):
-        self._span = span
-
-    def __enter__(self):
-        return self._span
-
-    def __exit__(self, exc_type, exc, tb):
-        return False
-
-
-class _DummyTracer:
-    def __init__(self):
-        self.started_spans = []
-
-    def start_as_current_span(self, span_name):
-        span = _DummySpan()
-        self.started_spans.append((span_name, span))
-        return _SpanContext(span)
-
-
-def _build_fake_opentelemetry_module():
-    tracer = _DummyTracer()
-    trace_ns = types.SimpleNamespace(get_tracer=lambda service_name: tracer)
-    module = types.SimpleNamespace(trace=trace_ns)
-    return module, tracer
-
-
-def _build_event() -> MCPEvent:
-    return MCPEvent(
-        tool_name="sample_tool",
-        args={"tenant": "acme", "items": [1, 2, 3]},
-        timestamp=datetime.now(timezone.utc),
-        delta=0.15,
-        status=Status.SUCCESS,
-        error="",
-        metadata={"source": "unit"},
-        result={"ok": True},
-    )
-
-
+@pytest.mark.opentelemetry
 def test_opentelemetry_exporter_disabled_is_noop():
     exporter = OpenTelemetryExporter(enabled=False)
 
+    asyncio.run(exporter.connect())
+
     assert exporter.enabled is False
     assert exporter.tracer is None
+    assert asyncio.run(exporter.healthcheck()) is False
 
 
-def test_opentelemetry_exporter_enabled_without_dependency_disables_itself():
+@pytest.mark.opentelemetry
+def test_opentelemetry_exporter_with_no_signals_is_noop():
+    exporter = OpenTelemetryExporter(enabled=True)
+
+    asyncio.run(exporter.connect())
+    asyncio.run(exporter.export([]))
+
+    assert exporter._connected is True
+    assert exporter.tracer is None
+    assert asyncio.run(exporter.healthcheck()) is True
+
+
+@pytest.mark.opentelemetry
+def test_opentelemetry_exporter_rejects_invalid_endpoint():
+    exporter = OpenTelemetryExporter(
+        enabled=True,
+        endpoint="not-a-url",
+        traces_enabled=True,
+    )
+
+    with pytest.raises(ExporterConfigurationError):
+        asyncio.run(exporter.connect())
+
+
+@pytest.mark.opentelemetry
+def test_opentelemetry_exporter_requires_otlp_http_dependency():
+    exporter = OpenTelemetryExporter(enabled=True, traces_enabled=True)
     real_import = __import__
 
     def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
-        if name == "opentelemetry":
-            raise ImportError("missing opentelemetry")
+        if name.startswith("opentelemetry"):
+            raise ImportError("missing OpenTelemetry")
         return real_import(name, globals, locals, fromlist, level)
 
     with patch("builtins.__import__", side_effect=fake_import):
-        exporter = OpenTelemetryExporter(enabled=True)
-
-    assert exporter.enabled is False
-    assert exporter.tracer is None
+        with pytest.raises(OptionalDependencyMissingError):
+            asyncio.run(exporter.connect())
 
 
-@patch("os.getenv", return_value="false")
-def test_opentelemetry_exporter_exports_event_to_span(_):
-    fake_module, fake_tracer = _build_fake_opentelemetry_module()
+@pytest.mark.opentelemetry
+def test_opentelemetry_exporter_rejects_incompatible_sdk_on_python_314(monkeypatch):
+    exporter = OpenTelemetryExporter(enabled=True, traces_enabled=True)
+    monkeypatch.setattr(otel_exporter_module, "version_info", (3, 14, 0))
+    monkeypatch.setattr(otel_exporter_module, "version", lambda _: "1.24.0")
 
-    with patch.dict("sys.modules", {"opentelemetry": fake_module}):
-        exporter = OpenTelemetryExporter(enabled=True, service_name="test-service", span_prefix="mcp.tool")
-        event = _build_event()
-
-        import asyncio
-        asyncio.run(exporter.export(event))
-
-    assert exporter.enabled is True
-    assert len(fake_tracer.started_spans) == 1
-
-    span_name, span = fake_tracer.started_spans[0]
-    assert span_name == "mcp.tool.sample_tool"
-    assert span.attributes["mcp.tool_name"] == "sample_tool"
-    assert span.attributes["mcp.status"] == "success"
-    assert span.attributes["mcp.delta"] == 0.15
+    with pytest.raises(
+        OpenTelemetryCompatibilityError,
+        match="requires opentelemetry-sdk>=1.35.0",
+    ):
+        asyncio.run(exporter.connect())
 
 
-@patch("os.getenv", return_value="false")
-def test_opentelemetry_exporter_exports_batch_to_multiple_spans(_):
-    fake_module, fake_tracer = _build_fake_opentelemetry_module()
+@pytest.mark.opentelemetry
+def test_pending_spans_are_bounded_and_oldest_are_discarded(monkeypatch):
+    exporter = OpenTelemetryExporter(enabled=True, traces_enabled=True)
+    state = exporter._trace_state("trace")
+    monkeypatch.setattr(otel_exporter_module.time, "monotonic", lambda: 10.0)
 
-    with patch.dict("sys.modules", {"opentelemetry": fake_module}):
-        exporter = OpenTelemetryExporter(enabled=True, span_prefix="mcp.tool")
-        events = [_build_event(), _build_event()]
+    for index in range(otel_exporter_module._MAX_PENDING_SPANS + 1):
+        exporter._queue_pending_span(
+            state,
+            SpanEvent(
+                trace_id="trace",
+                span_id=f"span-{index}",
+                operation_name="operation",
+            ),
+        )
 
-        import asyncio
-        asyncio.run(exporter.export_batch(events))
+    assert exporter._pending_span_count == otel_exporter_module._MAX_PENDING_SPANS
+    assert len(state.pending_spans) == otel_exporter_module._MAX_PENDING_SPANS
+    assert state.pending_spans[0][0].span_id == "span-1"
 
-    assert len(fake_tracer.started_spans) == 2
 
+@pytest.mark.opentelemetry
+def test_pending_spans_expire_after_five_minutes(monkeypatch):
+    current_time = [10.0]
+    monkeypatch.setattr(
+        otel_exporter_module.time,
+        "monotonic",
+        lambda: current_time[0],
+    )
+    exporter = OpenTelemetryExporter(enabled=True, traces_enabled=True)
+    state = exporter._trace_state("trace")
+    exporter._queue_pending_span(
+        state,
+        SpanEvent(
+            trace_id="trace",
+            span_id="span-1",
+            operation_name="operation",
+        ),
+    )
 
-@patch("os.getenv", return_value="false")
-def test_opentelemetry_exporter_healthcheck_and_description_are_consistent(_):
-    fake_module, fake_tracer = _build_fake_opentelemetry_module()
+    current_time[0] += otel_exporter_module._PENDING_SPAN_TTL_SECONDS
+    exporter._prune_expired_traces()
 
-    with patch.dict("sys.modules", {"opentelemetry": fake_module}):
-        exporter = OpenTelemetryExporter(enabled=True, service_name="health-service", span_prefix="mcp.health")
-
-        import asyncio
-        healthy = asyncio.run(exporter.healthcheck())
-        description = asyncio.run(exporter.describe())
-
-    assert healthy is True
-    assert description["status"] == "healthy"
-    assert description["service_name"] == "health-service"
-    assert description["enabled"] is True
-    assert len(fake_tracer.started_spans) >= 1
+    assert exporter._pending_span_count == 0
+    assert "trace" not in exporter._traces

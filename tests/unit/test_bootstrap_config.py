@@ -20,11 +20,13 @@ def clear_aimonitor_env(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_initialize_monitor_uses_valid_runtime_fields(tmp_path, monkeypatch):
+    monkeypatch.setenv("PROMETHEUS_BOOTSTRAP_TOKEN", "bootstrap-scrape-token")
+    monkeypatch.setenv("OTEL_BOOTSTRAP_TOKEN", "bootstrap-otel-token")
     config_path = tmp_path / "aimonitor.yaml"
     config_path.write_text(
         """
 app:
-  env: ENV
+  env: DEV
 tracking:
   enabled: true
   track_metrics: true
@@ -34,6 +36,7 @@ exporters:
   prometheus:
     enabled: true
     url: "http://localhost:9000"
+    bearer_token: "$secrets.PROMETHEUS_BOOTSTRAP_TOKEN"
   file:
     enabled: true
     file_path: "./tmp_runtime_logs"
@@ -41,10 +44,19 @@ exporters:
     enabled: true
     service_name: "aimonitor-test"
     span_prefix: "mcp.test"
+    endpoint: "https://otel.example:4318/base"
+    headers:
+      Authorization: "Bearer $secrets.OTEL_BOOTSTRAP_TOKEN"
+    signals:
+      traces: true
+      metrics: true
+      logs: false
+    metrics_export_interval_ms: 15000
 """.strip()
     )
 
     settings = AIMonitorSettings()
+    settings.reset()
     await settings.load_from_yaml(config_path)
 
     assert settings.prometheus_enabled is True
@@ -54,13 +66,43 @@ exporters:
     assert settings.file_exporter_logs == Path("./tmp_runtime_logs")
     assert settings.otel_mcp_exporter_enabled is True
     assert settings.otel_mcp_service_name == "aimonitor-test"
+    assert settings.exporters.otel.endpoint == "https://otel.example:4318/base"
+    assert settings.exporters.otel.signals.traces is True
+    assert settings.exporters.otel.signals.metrics is True
+    assert settings.exporters.otel.signals.logs is False
+    assert settings.exporters.otel.metrics_export_interval_ms == 15000
+    assert (
+        settings.exporters.otel.headers["Authorization"].get_secret_value()
+        == "Bearer bootstrap-otel-token"
+    )
+    assert "bootstrap-otel-token" not in repr(settings.exporters.otel)
 
     class PrometheusStub(BaseExporter):
-        def __init__(self, **kwargs):
-            pass
+        def __init__(self, address: str, bearer_token: str | None = None):
+            self.address = address
+            self.bearer_token = bearer_token
 
-        def export_batch(self, event_batch):
-            return super().export_batch(event_batch)
+        def export(self, event_batch):
+            return super().export(event_batch)
+
+        async def healthcheck(self):
+            return True
+
+        async def describe(self):
+            return {"status": "healthy"}
+
+        async def recover(self):
+            return True
+
+    class OpenTelemetryStub(BaseExporter):
+        def __init__(self, **options):
+            self.options = options
+
+        async def connect(self):
+            self.connected = True
+
+        async def export(self, event_batch):
+            return None
 
         async def healthcheck(self):
             return True
@@ -72,11 +114,61 @@ exporters:
             return True
 
     monkeypatch.setattr("aimonitor.bootstrap.PrometheusExporter", PrometheusStub)
+    monkeypatch.setattr("aimonitor.bootstrap.OpenTelemetryExporter", OpenTelemetryStub)
     initialized = await initialize_monitor(config_path)
     assert initialized.prometheus_enabled is True
     assert initialized.file_enabled is True
+    prometheus_exporter = next(
+        exporter
+        for exporter in registry.exporters
+        if isinstance(exporter, PrometheusStub)
+    )
+    assert prometheus_exporter.bearer_token == "bootstrap-scrape-token"
+    otel_exporter = next(
+        exporter
+        for exporter in registry.exporters
+        if isinstance(exporter, OpenTelemetryStub)
+    )
+    assert otel_exporter.connected is True
+    assert otel_exporter.options["endpoint"] == "https://otel.example:4318/base"
+    assert otel_exporter.options["headers"] == {
+        "Authorization": "Bearer bootstrap-otel-token"
+    }
+    assert otel_exporter.options["traces_enabled"] is True
+    assert otel_exporter.options["metrics_enabled"] is True
+    assert otel_exporter.options["logs_enabled"] is False
+    assert otel_exporter.options["metrics_export_interval_ms"] == 15000
 
     await registry.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_reloading_yaml_replaces_previous_file_values(tmp_path):
+    first_config_path = tmp_path / "first.yaml"
+    first_config_path.write_text(
+        """
+exporters:
+  prometheus:
+    enabled: true
+    url: "http://first-host:9000"
+""".strip()
+    )
+    second_config_path = tmp_path / "second.yaml"
+    second_config_path.write_text(
+        """
+exporters:
+  prometheus:
+    enabled: true
+    url: "http://second-host:9000"
+""".strip()
+    )
+
+    settings = AIMonitorSettings()
+    await settings.load_from_yaml(first_config_path)
+    assert str(settings.prometheus_url).startswith("http://first-host:9000")
+
+    await settings.load_from_yaml(second_config_path)
+    assert str(settings.prometheus_url).startswith("http://second-host:9000")
 
 
 @pytest.mark.asyncio
@@ -136,6 +228,11 @@ exporters:
     group_id: "aimonitor-test-group"
     max_in_flight_requests_per_connection: 3
     buffer_timeout: 2.5
+    topics:
+      event: "aimonitor.events"
+      metric: "aimonitor.metrics"
+      log: "aimonitor.logs"
+      span: "aimonitor.spans"
     sasl:
       mechanism: "PLAIN"
       username: "demo-user"
@@ -159,6 +256,14 @@ exporters:
     assert settings.exporters.kafka.group_id == "aimonitor-test-group"
     assert settings.exporters.kafka.max_in_flight_requests_per_connection == 3
     assert settings.exporters.kafka.buffer_timeout == 2.5
+    assert settings.exporters.kafka.topics.event == "aimonitor.events"
+    assert settings.exporters.kafka.topics.metric == "aimonitor.metrics"
+    assert settings.exporters.kafka.topics.log == "aimonitor.logs"
+    assert settings.exporters.kafka.topics.span == "aimonitor.spans"
+    assert settings.exporters.kafka.sasl_username.get_secret_value() == "demo-user"
+    assert settings.exporters.kafka.sasl_password.get_secret_value() == "demo-pass"
+    assert "demo-user" not in repr(settings.exporters.kafka)
+    assert "demo-pass" not in repr(settings.exporters.kafka)
     assert settings.exporters.kafka.producer.acks == "all"
     assert settings.exporters.kafka.producer.compression == "gzip"
     assert settings.exporters.kafka.producer.linger_ms == 25
@@ -181,12 +286,91 @@ exporters:
 
 
 @pytest.mark.asyncio
+async def test_yaml_secret_references_resolve_from_environment(tmp_path, monkeypatch):
+    monkeypatch.setenv("KAFKA_CONFIG_USERNAME", "aimonitor-user")
+    monkeypatch.setenv("KAFKA_CONFIG_PASSWORD", "test-password")
+    config_path = tmp_path / "kafka_secrets.yaml"
+    config_path.write_text(
+        """
+exporters:
+  kafka:
+    enabled: true
+    sasl:
+      username: "service-$secrets.KAFKA_CONFIG_USERNAME"
+      password: "$secrets.KAFKA_CONFIG_PASSWORD"
+""".strip()
+    )
+
+    settings = AIMonitorSettings()
+    await settings.load_from_yaml(config_path)
+
+    assert settings.kafka_sasl_username.get_secret_value() == "service-aimonitor-user"
+    assert settings.kafka_sasl_password.get_secret_value() == "test-password"
+
+
+@pytest.mark.asyncio
+async def test_yaml_secret_reference_requires_environment_variable(tmp_path):
+    config_path = tmp_path / "missing_secret.yaml"
+    config_path.write_text(
+        """
+exporters:
+  kafka:
+    enabled: true
+    sasl:
+      password: "$secrets.MISSING_KAFKA_PASSWORD"
+""".strip()
+    )
+
+    settings = AIMonitorSettings()
+    with pytest.raises(
+        ValueError,
+        match="Required secret environment variable 'MISSING_KAFKA_PASSWORD' is not set",
+    ):
+        await settings.load_from_yaml(config_path)
+
+
+@pytest.mark.asyncio
+async def test_prometheus_bearer_token_is_loaded_as_a_secret(tmp_path, monkeypatch):
+    monkeypatch.setenv("PROMETHEUS_SCRAPE_TOKEN", "test-scrape-token")
+    config_path = tmp_path / "prometheus_auth.yaml"
+    config_path.write_text(
+        """
+exporters:
+  prometheus:
+    enabled: true
+    url: "http://localhost:9000"
+    bearer_token: "$secrets.PROMETHEUS_SCRAPE_TOKEN"
+""".strip()
+    )
+
+    settings = AIMonitorSettings()
+    await settings.load_from_yaml(config_path)
+
+    assert (
+        settings.exporters.prometheus.bearer_token.get_secret_value()
+        == "test-scrape-token"
+    )
+    assert "test-scrape-token" not in repr(settings.exporters.prometheus)
+
+
+@pytest.mark.asyncio
 async def test_json_loader_reads_kafka_settings(tmp_path):
     config_path = tmp_path / "kafka_aimonitor.json"
     config_path.write_text(
         json.dumps(
             {
                 "exporters": {
+                    "otel": {
+                        "enabled": True,
+                        "endpoint": "http://otel-json:4318",
+                        "headers": {"X-Api-Key": "json-otel-key"},
+                        "signals": {
+                            "traces": True,
+                            "metrics": False,
+                            "logs": True,
+                        },
+                        "metrics_export_interval_ms": 12000,
+                    },
                     "kafka": {
                         "enabled": True,
                         "bootstrap_servers": "localhost:9092",
@@ -226,8 +410,10 @@ async def test_json_loader_reads_kafka_settings(tmp_path):
     assert settings.exporters.kafka.bootstrap_servers == "localhost:9092"
     assert settings.exporters.kafka.security_protocol == "SASL_SSL"
     assert settings.exporters.kafka.sasl_mechanism == "PLAIN"
-    assert settings.exporters.kafka.sasl_username == "json-user"
-    assert settings.exporters.kafka.sasl_password == "json-pass"
+    assert settings.exporters.kafka.sasl_username.get_secret_value() == "json-user"
+    assert settings.exporters.kafka.sasl_password.get_secret_value() == "json-pass"
+    assert "json-user" not in repr(settings.exporters.kafka)
+    assert "json-pass" not in repr(settings.exporters.kafka)
     assert settings.exporters.kafka.group_id == "aimonitor-json-group"
     assert settings.exporters.kafka.auto_offset_reset == "latest"
     assert settings.exporters.kafka.retry_policy == 4
@@ -243,6 +429,17 @@ async def test_json_loader_reads_kafka_settings(tmp_path):
     assert settings.exporters.kafka.producer.compression == "snappy"
     assert settings.exporters.kafka.producer.max_workers == 4
     assert settings.exporters.kafka.producer.batch_size == 512
+    assert settings.exporters.otel.enabled is True
+    assert settings.exporters.otel.endpoint == "http://otel-json:4318"
+    assert (
+        settings.exporters.otel.headers["X-Api-Key"].get_secret_value()
+        == "json-otel-key"
+    )
+    assert "json-otel-key" not in repr(settings.exporters.otel)
+    assert settings.exporters.otel.signals.traces is True
+    assert settings.exporters.otel.signals.metrics is False
+    assert settings.exporters.otel.signals.logs is True
+    assert settings.exporters.otel.metrics_export_interval_ms == 12000
     assert settings.exporters.kafka.producer.retries == 4
 
 

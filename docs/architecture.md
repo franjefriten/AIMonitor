@@ -9,11 +9,14 @@ AIMonitor is built as a modular monitoring framework for MCP workflows, with a c
 
 The repository is organized into:
 
-- `core/`: event model, registry and decorators for tool monitoring
-- `exporters/`: output adapters for file, SQLite, Prometheus, and OpenTelemetry
-- `telemetry/`: internal SDK telemetry manager and OpenTelemetry integration
-- `configs/`: settings model and environment handling
+- `src/aimonitor/core/`: event model, registry, and decorators for tool monitoring
+- `src/aimonitor/exporters/`: output adapters for console, file, SQLite, Webhook/HTTP, Prometheus, OpenTelemetry, and Kafka
+- `src/aimonitor/telemetry/`: internal SDK telemetry manager and OpenTelemetry integration
+- `src/aimonitor/configs/`: settings model and environment handling
 - `tests/`: unit and integration tests
+
+Public imports use the `aimonitor` namespace, for example
+`aimonitor.core.registry` and `aimonitor.exporters.base`.
 
 ## Core components
 
@@ -58,11 +61,20 @@ Persists events in SQLite tables, useful for local debugging and simple storage.
 
 ### `PrometheusExporter`
 
-Exposes metrics as Prometheus counters and histograms.
+Exposes `MetricEvent` signals as Prometheus counters, gauges, or histograms. It does not export raw `MCPEvent`, log, or span payloads; if one of those signals needs to produce a Prometheus observation, instrumentation should emit a corresponding `MetricEvent`.
+
+Each metric name has one stable metric type and label-name set for the lifetime of the exporter. Counter events increment by their value and reject negative increments; gauge events set the current value; histogram events observe the value.
+
+See [built-in exporters](./exporters.md) for the purpose, supported signals, and delivery model of each native exporter.
 
 ### `OpenTelemetryExporter`
 
-Converts `MCPEvent` objects into OpenTelemetry spans without coupling them to internal SDK telemetry.
+Exports enabled AIMonitor signals over OTLP/HTTP using private OpenTelemetry providers.
+It represents `MCPEvent` and nested `SpanEvent` values as correlated spans,
+records `MetricEvent` values with counters, histograms, or gauges, and exports
+`LogEvent` values as OTel log records. It must not replace application-global
+OpenTelemetry providers. Sensitive event fields such as `args`, `result`, and
+metadata are not exported by default.
 
 ## Internal telemetry vs event export
 
@@ -98,9 +110,7 @@ The CI workflow runs unit tests on every pull request to `main`.
 
 ## How to extend
 
-To add a new exporter:
-
-1. inherit from `exporters.base.BaseExporter`
-2. implement `export` and optionally `export_batch`
-3. register the exporter in `core.registry`
-4. add tests under `tests/unit`
+To add an exporter, implement `export()` and register it in
+`core.registry`. `exporters.base.ProtocolExporter` is the minimal contract.
+Inherit from `BaseExporter` when health checks and recovery management are
+needed; only those exporters appear in readiness snapshots.

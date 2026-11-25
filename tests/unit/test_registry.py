@@ -1,7 +1,7 @@
 import pytest
 
 from aimonitor.exporters.base import BaseExporter
-from aimonitor.core.event import HealthStatus
+from aimonitor.core.event import HealthStatus, SDKHealthStatus
 from aimonitor.core.registry import ExporterRegistry, registry
 from tests.conftest import _generate_mcp_event
 
@@ -10,10 +10,8 @@ import asyncio
 @pytest.mark.asyncio
 async def test_exporter_on_successful_events_batches():
     class SuccessfulExporter(BaseExporter):
-        async def export(self, event):
-            return await super().export(event)
-        async def export_batch(self, event_batch):
-            return await super().export_batch(event_batch)
+        async def export(self, event_batch):
+            return await super().export(event_batch)
         async def healthcheck(self):
             return True
         async def describe(self):
@@ -54,10 +52,7 @@ async def test_exporter_on_successful_events_batches():
 @pytest.mark.asyncio
 async def test_exporter_auto_removal_on_failure():
     class FailingExporter(BaseExporter):
-        async def export(self, event):
-            raise ConnectionError("Service Down")
-
-        async def export_batch(self, event_batch):
+        async def export(self, event_batch):
             raise ConnectionError("Service Down")
 
         async def healthcheck(self):
@@ -89,7 +84,7 @@ async def test_exporter_auto_removal_on_failure():
 @pytest.mark.asyncio
 async def test_registry_tracks_export_failure_and_shutdown_status():
     class FailingExporter(BaseExporter):
-        async def export_batch(self, event_batch):
+        async def export(self, event_batch):
             raise ConnectionError("Service Down")
 
         async def healthcheck(self):
@@ -117,3 +112,32 @@ async def test_registry_tracks_export_failure_and_shutdown_status():
     exporter_snapshot = next(iter(snapshot.exporters.values()))
 
     assert exporter_snapshot.status == HealthStatus.STOPPED
+
+
+@pytest.mark.asyncio
+async def test_minimal_exporter_protocol_dispatches_without_readiness_lifecycle():
+    exported_batches = []
+
+    class MinimalExporter:
+        async def export(self, event_batch):
+            exported_batches.append(list(event_batch))
+
+    registry = ExporterRegistry(batch_size=1, num_workers=1)
+    exporter = MinimalExporter()
+    registry.register(exporter)
+
+    snapshot = await registry.health_snapshot()
+    assert snapshot.status == SDKHealthStatus.EMPTY
+    assert snapshot.exporters == {}
+    assert registry.exporters == (exporter,)
+
+    event = _generate_mcp_event()
+    await registry.dispatch(event)
+    await asyncio.wait_for(registry._queue.join(), timeout=1)
+
+    assert exported_batches == [[event]]
+    snapshot = await registry.health_snapshot()
+    assert snapshot.status == SDKHealthStatus.EMPTY
+    assert snapshot.exporters == {}
+
+    await registry.shutdown()

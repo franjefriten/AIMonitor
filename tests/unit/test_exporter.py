@@ -17,7 +17,7 @@ async def test_file_exporter_creates_file_and_writes(tmp_path):
     
     try:
         event = _generate_mcp_event()
-        await exporter.export(event)
+        await exporter.export([event])
     finally:
         await exporter.close()
     
@@ -37,7 +37,7 @@ async def test_file_exporter_count_events(tmp_path):
     events_num = 1000
     try:
         events = [_generate_mcp_event() for _ in range(events_num)]
-        await file_exporter.export_batch(event_batch=events)
+        await file_exporter.export(event_batch=events)
     finally:
         await file_exporter.close()
 
@@ -56,7 +56,7 @@ async def test_file_exporter_rotation(tmp_path):
     try:
         for _ in range(20):
             batch = [_generate_mcp_event() for _ in range(50)]
-            await file_exporter.export_batch(event_batch=batch)
+            await file_exporter.export(event_batch=batch)
     finally:
         await file_exporter.close()    
 
@@ -79,7 +79,7 @@ async def test_writes_to_sqlite():
         await sqlite_exporter.connect()
         for _ in range(batches):
             batch = [_generate_mcp_event() for _ in range(batch_length)]
-            await sqlite_exporter.export_batch(event_batch=batch)
+            await sqlite_exporter.export(event_batch=batch)
         
         async with sqlite_exporter.client.execute("SELECT COUNT(*) FROM events_event;") as cursor:
             row = await cursor.fetchone()
@@ -118,7 +118,7 @@ async def test_span_events_wrote_to_sqlite():
                 operation_name=f"tool_3_call_operation_name"
             )
         ]
-        await sqlite_exporter.export_batch(event_batch=batch)
+        await sqlite_exporter.export(event_batch=batch)
     except Exception as e:
         pytest.fail(f"SQLiteExporter failed to write span events: {e}")
 

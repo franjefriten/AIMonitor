@@ -14,17 +14,14 @@ async def test_observability_api_emits_event_log_and_metric_signals():
     captured = []
 
     class SpyExporter(BaseExporter):
-        async def export(self, event):
-            captured.append(event)
-
-        async def export_batch(self, event_batch):
+        async def export(self, event_batch):
             captured.extend(event_batch)
 
         async def healthcheck(self):
-            pass
+            return True
 
         async def describe(self):
-            pass
+            return {"status": "healthy"}
 
         async def recover(self):
             return True
@@ -34,7 +31,7 @@ async def test_observability_api_emits_event_log_and_metric_signals():
     registry.register(exporter=SpyExporter())
 
     await monitor.emit_tool_execution_event("sample_tool", args={"name": "Ada"}, result={"ok": True})
-    await monitor.log("hello from api", level="info", source="tests")
+    await monitor.log("hello from api", level="info", source="tests", environment="DEV")
     await monitor.record_metric("requests_total", 3, metric_type="counter", labels={"route": "/health"})
 
     await asyncio.sleep(0.3)

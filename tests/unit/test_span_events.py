@@ -13,18 +13,10 @@ async def test_emit_span_event():
     captured = []
 
     class SpyExporter:
-        async def export(self, event):
-            captured.append(event)
-
-        async def export_batch(self, event_batch):
+        async def export(self, event_batch):
             captured.extend(event_batch)
-        
-        async def healthcheck(self):
-            pass
 
-        async def describe(self):
-            pass
-
+    await registry.reset()
     registry.register(exporter=SpyExporter())
 
     def _some_nested_function():
@@ -47,7 +39,8 @@ async def test_emit_span_event():
     mcp_event = next(event for event in captured if isinstance(event, MCPEvent))
     nested_span_event = next(event for event in captured if isinstance(event, SpanEvent))
     assert nested_span_event.operation_name == "nested_span"
-    assert "sample_function" in nested_span_event.parent_id
+    assert nested_span_event.parent_id is None
+    assert "sample_function" in nested_span_event.trace_id
     assert "nested_span" in nested_span_event.span_id  
 
     captured = []  # Reset captured events for the next test
@@ -59,17 +52,8 @@ async def test_emit_multi_span_event():
     captured = []
 
     class SpyExporter:
-        async def export(self, event):
-            captured.append(event)
-
-        async def export_batch(self, event_batch):
+        async def export(self, event_batch):
             captured.extend(event_batch)
-
-        async def healthcheck(self):
-            pass
-
-        async def describe(self):
-            pass
 
     registry.register(exporter=SpyExporter())
 
@@ -96,6 +80,7 @@ async def test_emit_multi_span_event():
     #print(f"[span_events]\n{"\n".join(event.model_dump_json() for event in span_events)}")
     assert span_events[1].operation_name == "nested_span"
     assert span_events[0].operation_name == "another_nested_span"
+    assert span_events[0].parent_id == span_events[1].span_id
 
     await registry.shutdown()
 
@@ -105,10 +90,7 @@ async def test_emit_span_from_many_decorators():
     captured = []
 
     class SpyExporter:
-        async def export(self, event):
-            captured.append(event)
-
-        async def export_batch(self, event_batch):
+        async def export(self, event_batch):
             captured.extend(event_batch)
 
     registry.register(exporter=SpyExporter())

@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from aimonitor.configs.config import AIMonitorSettings, get_settings
+from aimonitor.core.event import SignalType
 from aimonitor.core.registry import registry
 from aimonitor.exporters.file import FileExporter
 from aimonitor.exporters.kafka import KafkaExporter
@@ -24,7 +25,7 @@ async def initialize_monitor(config_path: str | Path | None = None) -> AIMonitor
         elif path.suffix.lower() == ".json":
             await settings.load_from_json(path)
 
-    setup_logging(env_code=settings.app.env_code)
+    setup_logging(env_code=settings.app.env_code if settings.app.env_code is not None else "")
 
     from aimonitor.telemetry.api import telemetry_producer
     telemetry_producer.reset()
@@ -32,30 +33,61 @@ async def initialize_monitor(config_path: str | Path | None = None) -> AIMonitor
     exporters = []
 
     if settings.exporters.sqlite.enabled and settings.exporters.sqlite.uri is not None:
-        exporters.append(SQLiteExporter(settings.exporters.sqlite.uri))
+        exporters.append(SQLiteExporter(settings.exporters.sqlite.uri.as_uri()))
 
     if settings.exporters.kafka.enabled and settings.exporters.kafka.bootstrap_servers:
         kafka_settings = settings.get_kafka_config()
+        kafka_topics = {
+            "event": settings.exporters.kafka.topics.event,
+            "metric": settings.exporters.kafka.topics.metric,
+            "log": settings.exporters.kafka.topics.log,
+            "span": settings.exporters.kafka.topics.span,
+        }
         exporters.append(
             KafkaExporter(
                 kafka_configs=kafka_settings,
                 max_workers=settings.exporters.kafka.producer.max_workers or 5,
                 batch_size=settings.exporters.kafka.producer.batch_size or 10,
                 buffer_timeout=settings.exporters.kafka.buffer_timeout if settings.exporters.kafka.buffer_timeout is not None else 1.0,
+                topics={
+                    SignalType.EVENT: kafka_topics.get("event") or "",
+                    SignalType.METRIC: kafka_topics.get("metric") or "",
+                    SignalType.LOG: kafka_topics.get("log") or "",
+                    SignalType.SPAN: kafka_topics.get("span") or "",
+                },
             )
         )
 
     if settings.exporters.otel.enabled:
-        exporters.append(
-            OpenTelemetryExporter(
-                enabled=True,
-                service_name=settings.exporters.otel.service_name,
-                span_prefix=settings.exporters.otel.span_prefix,
-            )
+        otel_exporter = OpenTelemetryExporter(
+            enabled=True,
+            service_name=settings.exporters.otel.service_name,
+            span_prefix=settings.exporters.otel.span_prefix,
+            endpoint=settings.exporters.otel.endpoint,
+            headers={
+                name: value.get_secret_value()
+                for name, value in settings.exporters.otel.headers.items()
+            },
+            traces_enabled=settings.exporters.otel.signals.traces,
+            metrics_enabled=settings.exporters.otel.signals.metrics,
+            logs_enabled=settings.exporters.otel.signals.logs,
+            metrics_export_interval_ms=settings.exporters.otel.metrics_export_interval_ms,
         )
+        await otel_exporter.connect()
+        exporters.append(otel_exporter)
 
     if settings.exporters.prometheus.enabled and settings.exporters.prometheus.url is not None:
-        exporters.append(PrometheusExporter(address=str(settings.exporters.prometheus.url), registry=None))
+        bearer_token = settings.exporters.prometheus.bearer_token
+        exporters.append(
+            PrometheusExporter(
+                address=str(settings.exporters.prometheus.url),
+                bearer_token=(
+                    bearer_token.get_secret_value()
+                    if bearer_token is not None
+                    else None
+                ),
+            )
+        )
 
     if settings.exporters.file.enabled and settings.exporters.file.path is not None:
         exporters.append(FileExporter(settings.exporters.file.path))

@@ -69,7 +69,6 @@ from aimonitor.telemetry.api import get_process_liveness, get_sdk_readiness
 async def lifespan(app: FastAPI):
     await initialize_monitor("config.yaml")
     yield
-    from core.registry import registry
     await shutdown_monitor()
 
 
@@ -98,14 +97,15 @@ The same functions can be connected to Starlette, Flask through an adapter, or a
 
 ## How to implement a custom exporter
 
-A custom exporter must implement `export_batch()`, `healthcheck()`, `describe()`, and `recover()`:
+A health-managed custom exporter inherits from `BaseExporter` and implements
+`export()`, `healthcheck()`, `describe()`, and `recover()`:
 
 ```python
 from aimonitor.exporters.base import BaseExporter
 
 
 class CustomExporter(BaseExporter):
-  async def export_batch(self, event_batch):
+  async def export(self, event_batch):
     ...
 
   async def healthcheck(self) -> bool:
@@ -131,3 +131,9 @@ The registry maps healthcheck results to snapshots:
 | `recovering`  | Recovery is in progress after an unhealthy result.                                                                                                                         |
 
 Recovery is followed by another healthcheck before the exporter can become `healthy` again.
+
+For exporters that do not need health checks or recovery, implement the
+minimal `ProtocolExporter` interface with only `export()`. These simple
+exporters are dispatched normally but are omitted from readiness snapshots;
+`empty` means there are no health-managed exporters to report, not that no
+exporters are registered.
