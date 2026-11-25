@@ -39,6 +39,8 @@ class ExporterRegistry:
             self._loop = None
         if not hasattr(self, "_healthcheck_worker"):
             self._healthcheck_worker: asyncio.Task | None = None
+        if not hasattr(self, "_exporter_locks"):
+            self._exporter_locks: dict[int, asyncio.Lock] = {}
         if not hasattr(self, "_health_keys"):
             self._health_keys: dict[int, str] = {}
 
@@ -244,6 +246,10 @@ class ExporterRegistry:
         
         
     async def _attempt_exporter_recovery(self, exporter: BaseExporter) -> bool:
+        async with self._get_exporter_lock(exporter):
+            return await self._attempt_exporter_recovery_locked(exporter)
+
+    async def _attempt_exporter_recovery_locked(self, exporter: BaseExporter) -> bool:
         started_at = datetime.now(timezone.utc)
         pre_health_recovery_snapshot = HealthCheckSnapshot(
             exporter_name=exporter.__class__.__name__,
@@ -344,6 +350,9 @@ class ExporterRegistry:
         except RuntimeError:
             return
 
+        if not self._ensure_runtime_loop(loop):
+            return
+
         if self._healthcheck_worker is None or self._healthcheck_worker.done():
             self._healthcheck_worker = loop.create_task(self._healthcheck_loop())
 
@@ -362,6 +371,24 @@ class ExporterRegistry:
                     logger.error(f"Health check failed for exporter {exporter}: {e}")
             await asyncio.sleep(self._healthcheck_interval)
 
+    def _ensure_runtime_loop(self, loop: asyncio.AbstractEventLoop) -> bool:
+        healthcheck_worker = self._healthcheck_worker
+        if healthcheck_worker is not None and healthcheck_worker.get_loop() is not loop:
+            worker_loop = healthcheck_worker.get_loop()
+            if healthcheck_worker.done() or worker_loop.is_closed():
+                self._healthcheck_worker = None
+            else:
+                logger.error("Exporter registry is still active on a different event loop.")
+                return False
+
+        if self._loop is not None and self._loop is not loop:
+            self._workers = []
+            self._queue = None
+            self._exporter_locks = {}
+
+        self._loop = loop
+        return True
+
     def _ensure_queue_exists(self):
         try:
             loop = asyncio.get_running_loop()
@@ -372,11 +399,8 @@ class ExporterRegistry:
 
         # When pytest creates a new loop per test, stale workers/queues from a
         # previous loop become invalid and must be recreated.
-        if self._loop is not None and self._loop is not loop:
-            self._workers = []
-            self._queue = None
-
-        self._loop = loop
+        if not self._ensure_runtime_loop(loop):
+            return False
 
         if self._queue is None:
             self._queue = asyncio.Queue()
@@ -387,7 +411,15 @@ class ExporterRegistry:
         return True
 
     def register(self, exporter: ProtocolExporter):
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        if loop is not None and not self._ensure_runtime_loop(loop):
+            raise RuntimeError("Exporter registry is active on a different event loop.")
+
         self._exporters.append(exporter)
+        self._get_exporter_lock(exporter)
         if isinstance(exporter, BaseExporter):
             self._update_exporter_health(
                 exporter,
@@ -401,6 +433,12 @@ class ExporterRegistry:
         else:
             # Readiness tracks exporters with BaseExporter health management only.
             self._update_sdk_health()
+
+    def _get_exporter_lock(self, exporter: ProtocolExporter) -> asyncio.Lock:
+        exporter_id = id(exporter)
+        if exporter_id not in self._exporter_locks:
+            self._exporter_locks[exporter_id] = asyncio.Lock()
+        return self._exporter_locks[exporter_id]
 
     @property
     def exporters(self) -> tuple[ProtocolExporter, ...]:
@@ -495,15 +533,16 @@ class ExporterRegistry:
 
     async def _send_batch(self, batch: Sequence[BaseSignal]) -> None:
         for exporter in self._exporters:
-            try:
-                await exporter.export(batch)
-                if isinstance(exporter, BaseExporter):
-                    self._record_export_result(exporter, success=True)
-            except Exception as exc:
-                exporter_name = exporter.__class__.__name__
-                logger.error(f"Exporter {exporter_name} failed to export event batch, error: {repr(exc)}")
-                if isinstance(exporter, BaseExporter):
-                    self._record_export_result(exporter, success=False, message=str(exc))
+            async with self._get_exporter_lock(exporter):
+                try:
+                    await exporter.export(batch)
+                    if isinstance(exporter, BaseExporter):
+                        self._record_export_result(exporter, success=True)
+                except Exception as exc:
+                    exporter_name = exporter.__class__.__name__
+                    logger.error(f"Exporter {exporter_name} failed to export event batch, error: {repr(exc)}")
+                    if isinstance(exporter, BaseExporter):
+                        self._record_export_result(exporter, success=False, message=str(exc))
 
     async def shutdown(self):
         if self._queue is not None:
@@ -534,6 +573,7 @@ class ExporterRegistry:
 
         self._workers = []
         self._exporters = []
+        self._exporter_locks = {}
         self._queue = None
         self._loop = None
         self._healthcheck_enabled = False

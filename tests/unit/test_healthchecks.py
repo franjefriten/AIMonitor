@@ -1,5 +1,3 @@
-from turtle import rt
-
 from aimonitor.exporters.base import BaseExporter, with_retry
 from aimonitor.core.event import (
     MCPEvent,
@@ -243,6 +241,7 @@ async def test_inner_telemetry_disabled_keeps_health_snapshot_without_sending_to
     )
 
     exporter_registry = ExporterRegistry()
+    monkeypatch.setattr(exporter_registry, "_start_healthcheck_worker", lambda: None)
     exporter = CustomExporter()
     exporter_registry.register(exporter)
     snapshot = await exporter_registry._run_healthcheck(exporter)
@@ -685,3 +684,141 @@ async def test_registry_reset_discards_lifecycle_snapshot(monkeypatch):
     assert snapshot.status == SDKHealthStatus.EMPTY
     assert snapshot.exporters == {}
     assert snapshot.summary["total_exporters"] == 0
+
+
+@pytest.mark.asyncio
+async def test_shutdown_cancels_in_progress_healthcheck():
+    healthcheck_started = asyncio.Event()
+    healthcheck_cancelled = asyncio.Event()
+    release_healthcheck = asyncio.Event()
+
+    class BlockingHealthcheckExporter(BaseExporter):
+        def __init__(self):
+            self.closed = False
+
+        async def export(self, event_batch):
+            pass
+
+        async def healthcheck(self):
+            healthcheck_started.set()
+            try:
+                await release_healthcheck.wait()
+            except asyncio.CancelledError:
+                healthcheck_cancelled.set()
+                raise
+            return True
+
+        async def describe(self):
+            return {"destination": "test"}
+
+        async def recover(self):
+            return True
+
+        async def close(self):
+            self.closed = True
+
+    registry = ExporterRegistry()
+    registry._healthcheck_timeout = 60
+    exporter = BlockingHealthcheckExporter()
+    registry.register(exporter)
+    worker = registry._healthcheck_worker
+    assert worker is not None
+
+    try:
+        await asyncio.wait_for(healthcheck_started.wait(), timeout=2)
+        shutdown_task = asyncio.create_task(registry.shutdown())
+        done, _ = await asyncio.wait({shutdown_task}, timeout=2)
+        if not done:
+            release_healthcheck.set()
+            await asyncio.wait_for(shutdown_task, timeout=2)
+            pytest.fail("Shutdown did not cancel the active healthcheck worker.")
+
+        await shutdown_task
+
+        assert healthcheck_cancelled.is_set()
+        assert worker.cancelled()
+        assert exporter.closed
+    finally:
+        release_healthcheck.set()
+
+
+@pytest.mark.asyncio
+async def test_recovery_lock_blocks_only_exports_to_the_recovering_exporter(monkeypatch):
+    recovery_started = asyncio.Event()
+    release_recovery = asyncio.Event()
+    unrelated_export_started = asyncio.Event()
+    recovering_export_started = asyncio.Event()
+
+    class LockingExporter(BaseExporter):
+        def __init__(self, *, blocks_recovery=False):
+            self.blocks_recovery = blocks_recovery
+
+        async def export(self, event_batch):
+            if self.blocks_recovery:
+                recovering_export_started.set()
+            else:
+                unrelated_export_started.set()
+
+        async def healthcheck(self):
+            return True
+
+        async def describe(self):
+            return {"destination": "test"}
+
+        async def recover(self):
+            if self.blocks_recovery:
+                recovery_started.set()
+                await release_recovery.wait()
+            return True
+
+    registry = ExporterRegistry()
+    monkeypatch.setattr(registry, "_start_healthcheck_worker", lambda: None)
+    unrelated_exporter = LockingExporter()
+    recovering_exporter = LockingExporter(blocks_recovery=True)
+    registry.register(unrelated_exporter)
+    registry.register(recovering_exporter)
+
+    recovery_task = asyncio.create_task(
+        registry._attempt_exporter_recovery(recovering_exporter)
+    )
+    await asyncio.wait_for(recovery_started.wait(), timeout=1)
+    send_task = asyncio.create_task(registry._send_batch([]))
+
+    try:
+        await asyncio.wait_for(unrelated_export_started.wait(), timeout=1)
+        await asyncio.sleep(0)
+        assert not recovering_export_started.is_set()
+    finally:
+        release_recovery.set()
+        await asyncio.wait_for(
+            asyncio.gather(recovery_task, send_task),
+            timeout=1,
+        )
+
+    assert recovering_export_started.is_set()
+
+
+@pytest.mark.asyncio
+async def test_loop_change_discards_health_worker_from_closed_loop():
+    registry = ExporterRegistry()
+    old_loop = asyncio.new_event_loop()
+    stale_worker = old_loop.create_future()
+    registry._loop = old_loop
+    registry._queue = asyncio.Queue()
+    registry._healthcheck_worker = stale_worker
+    registry._exporter_locks = {1: asyncio.Lock()}
+
+    try:
+        current_loop = asyncio.get_running_loop()
+        assert not registry._ensure_runtime_loop(current_loop)
+        assert registry._healthcheck_worker is stale_worker
+
+        old_loop.close()
+
+        assert registry._ensure_runtime_loop(current_loop)
+        assert registry._healthcheck_worker is None
+        assert registry._queue is None
+        assert registry._exporter_locks == {}
+    finally:
+        if not old_loop.is_closed():
+            old_loop.close()

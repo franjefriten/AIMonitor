@@ -3,6 +3,7 @@ Exporters are responsible for taking the data from the database and converting i
 This module provides a base class for all exporters, which can be extended to create custom exporters for different formats.
 """
 from collections.abc import Sequence
+from typing import Any
 from abc import ABC, abstractmethod
 from typing import (
     Callable,
@@ -64,7 +65,7 @@ class BaseExporter(ABC):
         pass
 
     @abstractmethod
-    async def describe(self) -> dict[str, object]:
+    async def describe(self) -> dict[str, Any]:
         """Return diagnostic details for the exporter.
 
         The returned data is informational only. Health state is owned by the
