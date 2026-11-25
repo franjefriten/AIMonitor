@@ -1,11 +1,16 @@
 #!/bin/bash
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 CONFIG_PATH="${SCRIPT_DIR}/../prometheus.yaml"
 IMAGE_NAME="prom/prometheus"
 CONTAINER_NAME="${PROMETHEUS_CONTAINER_NAME:-prometheus}"
 HOST_PORT="${PROMETHEUS_HOST_PORT:-9090}"
+
+if [ ! -f "$CONFIG_PATH" ]; then
+  echo "Prometheus config file not found: $CONFIG_PATH" >&2
+  exit 1
+fi
 
 if ! docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
   echo "Pulling Prometheus image..."
