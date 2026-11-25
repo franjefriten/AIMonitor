@@ -53,7 +53,7 @@ jobs:
 
       - name: Run unit and integration tests
         run: |
-          python -m pytest tests/unit tests/integration -q
+          python -m pytest tests/unit tests/integration -vv
 
       - name: Stop Kafka
         if: always()
@@ -112,7 +112,7 @@ jobs:
 
       - name: Run all unit and integration tests
         run: |
-          python -m pytest tests/unit tests/integration -q
+          python -m pytest tests/unit tests/integration -vv
 
       - name: Stop Kafka
         if: always()

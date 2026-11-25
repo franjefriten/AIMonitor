@@ -182,7 +182,7 @@ def _restart_kafka_container() -> None:
         subprocess.run(["cmd", "/c", str(script)], check=True, capture_output=True, text=True, cwd=str(repo_root), timeout=180)
     else:
         script = repo_root / "scripts" / "kafka" / "sh" / "restart_kafka.sh"
-        subprocess.run(["bash", str(script)], check=True, capture_output=True, text=True, cwd=str(repo_root), timeout=180)
+        subprocess.run(["bash", str(script)], check=True, cwd=str(repo_root), timeout=180)
 
 
 _TEST_TOPIC = "aimonitor-events-{0}".format(uuid4())

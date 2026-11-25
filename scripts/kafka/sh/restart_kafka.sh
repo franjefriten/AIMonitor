@@ -9,7 +9,7 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 127
 fi
 
-"${SCRIPT_DIR}/stop_kafka_container.sh"
-"${SCRIPT_DIR}/run_kafka.sh"
+bash "${SCRIPT_DIR}/stop_kafka_container.sh"
+bash "${SCRIPT_DIR}/run_kafka.sh"
 
 echo "Kafka restarted successfully."
